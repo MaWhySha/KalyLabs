@@ -1160,6 +1160,166 @@
     .color-cpp { background: linear-gradient(135deg,#ec4899,#be185d); }
     .color-html{ background: linear-gradient(135deg,#f97316,#c2410c); }
     .color-default { background: linear-gradient(135deg,var(--accent),#6f5fe8); }
+
+    /* ========== EDIT PANEL ========== */
+    .admin-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 28px;
+    }
+    .admin-tab {
+      flex: 1;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--text3);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+      text-align: center;
+    }
+    .admin-tab.active {
+      background: var(--surface2);
+      color: var(--text);
+      box-shadow: var(--shadow);
+    }
+    .admin-tab:hover:not(.active) { color: var(--text2); }
+
+    .admin-panel { display: none; }
+    .admin-panel.active { display: block; }
+
+    /* Edit list */
+    .edit-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+
+    .edit-item {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      transition: var(--transition);
+    }
+    .edit-item:hover { border-color: var(--border2); }
+
+    .edit-item-info { min-width: 0; flex: 1; }
+    .edit-item-name {
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .edit-item-sub { font-size: 0.78rem; color: var(--text3); margin-top: 2px; }
+
+    .edit-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .btn-edit {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      transition: var(--transition);
+      background: rgba(124,107,255,0.1);
+      border: 1px solid rgba(124,107,255,0.2);
+      color: var(--accent3);
+    }
+    .btn-edit:hover {
+      background: rgba(124,107,255,0.2);
+      border-color: rgba(124,107,255,0.4);
+    }
+    .btn-delete {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      transition: var(--transition);
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.2);
+      color: #fca5a5;
+    }
+    .btn-delete:hover {
+      background: rgba(239,68,68,0.18);
+      border-color: rgba(239,68,68,0.4);
+    }
+
+    /* Edit inline form */
+    .edit-form {
+      background: var(--bg2);
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      padding: 20px;
+      margin-top: 8px;
+      box-shadow: 0 0 0 3px rgba(124,107,255,0.08);
+    }
+    .edit-form-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--accent3);
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .edit-form-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .btn-save-edit {
+      flex: 1;
+      min-width: 100px;
+      padding: 11px;
+      background: linear-gradient(135deg, var(--accent), #6f5fe8);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Syne', sans-serif;
+      transition: var(--transition);
+      box-shadow: 0 4px 16px rgba(124,107,255,0.3);
+    }
+    .btn-save-edit:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(124,107,255,0.4); }
+    .btn-cancel-edit {
+      padding: 11px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      color: var(--text2);
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      transition: var(--transition);
+    }
+    .btn-cancel-edit:hover { background: var(--surface2); color: var(--text); }
+
+    .edit-select-cat {
+      margin-bottom: 16px;
+    }
+    .edit-empty {
+      text-align: center;
+      padding: 32px 20px;
+      color: var(--text3);
+      font-size: 0.88rem;
+    }
   </style>
 </head>
 <body>
@@ -1184,43 +1344,21 @@
   <!-- Navbar -->
   <nav class="navbar">
     <div class="logo" onclick="showView('home')">
-      <!-- SVG Logo inspired by Kali Linux's dragon/serpent — abstract blade/eye motif -->
+      <!-- KalyLabs minimal logo: terminal bracket + pulse line -->
       <svg class="logo-icon" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="lg1" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stop-color="#7c6bff"/>
-            <stop offset="100%" stop-color="#a78bfa"/>
+            <stop offset="100%" stop-color="#c4b5fd"/>
           </linearGradient>
-          <linearGradient id="lg2" x1="0" y1="36" x2="36" y2="0" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#c4b5fd"/>
-            <stop offset="100%" stop-color="#7c6bff"/>
-          </linearGradient>
-          <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="1.5" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
         </defs>
-        <!-- outer hexagonal frame -->
-        <path d="M18 2 L32 10 L32 26 L18 34 L4 26 L4 10 Z"
-              fill="url(#lg1)" opacity="0.15" />
-        <path d="M18 2 L32 10 L32 26 L18 34 L4 26 L4 10 Z"
-              stroke="url(#lg1)" stroke-width="1.2" fill="none"/>
-        <!-- dragon-eye / blade shape -->
-        <path d="M18 8 L26 18 L18 28 L10 18 Z"
-              fill="url(#lg2)" opacity="0.3"/>
-        <!-- inner bright diamond -->
-        <path d="M18 12 L22 18 L18 24 L14 18 Z"
-              fill="url(#lg1)" filter="url(#glow)"/>
-        <!-- vertical center line like a slit pupil -->
-        <line x1="18" y1="10" x2="18" y2="26"
-              stroke="#c4b5fd" stroke-width="1" stroke-linecap="round" opacity="0.8"/>
-        <!-- horizontal crossbar -->
-        <line x1="12" y1="18" x2="24" y2="18"
-              stroke="url(#lg2)" stroke-width="0.8" stroke-linecap="round" opacity="0.6"/>
-        <!-- top accent dots -->
-        <circle cx="18" cy="6" r="1.2" fill="#a78bfa"/>
-        <circle cx="30" cy="13" r="0.8" fill="#7c6bff" opacity="0.7"/>
-        <circle cx="6" cy="13" r="0.8" fill="#7c6bff" opacity="0.7"/>
+        <!-- rounded square bg -->
+        <rect x="2" y="2" width="32" height="32" rx="9" fill="url(#lg1)" opacity="0.12"/>
+        <rect x="2" y="2" width="32" height="32" rx="9" stroke="url(#lg1)" stroke-width="1.2" fill="none"/>
+        <!-- terminal chevron left: < -->
+        <polyline points="15,12 9,18 15,24" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <!-- terminal chevron right: > -->
+        <polyline points="21,12 27,18 21,24" stroke="#c4b5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
       </svg>
       <div class="logo-text">Kaly<span>Labs</span></div>
     </div>
@@ -1283,13 +1421,13 @@
             <defs>
               <linearGradient id="lg3" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
                 <stop offset="0%" stop-color="#7c6bff"/>
-                <stop offset="100%" stop-color="#a78bfa"/>
+                <stop offset="100%" stop-color="#c4b5fd"/>
               </linearGradient>
             </defs>
-            <path d="M18 2 L32 10 L32 26 L18 34 L4 26 L4 10 Z" fill="url(#lg3)" opacity="0.15"/>
-            <path d="M18 2 L32 10 L32 26 L18 34 L4 26 L4 10 Z" stroke="url(#lg3)" stroke-width="1.2" fill="none"/>
-            <path d="M18 12 L22 18 L18 24 L14 18 Z" fill="url(#lg3)"/>
-            <line x1="18" y1="10" x2="18" y2="26" stroke="#c4b5fd" stroke-width="1" stroke-linecap="round"/>
+            <rect x="2" y="2" width="32" height="32" rx="9" fill="url(#lg3)" opacity="0.12"/>
+            <rect x="2" y="2" width="32" height="32" rx="9" stroke="url(#lg3)" stroke-width="1.2" fill="none"/>
+            <polyline points="15,12 9,18 15,24" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <polyline points="21,12 27,18 21,24" stroke="#c4b5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
           </svg>
           <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;">Kaly<span style="color:var(--accent2)">Labs</span></span>
         </div>
@@ -1315,59 +1453,92 @@
         <p class="admin-subtitle">Gestiona categorías y temas directamente en Firebase.</p>
       </div>
 
-      <!-- New Category -->
-      <div class="admin-card">
-        <div class="admin-card-title"><span>📦</span> Nueva Categoría</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Nombre</label>
-            <input type="text" class="form-input" id="newCatName" placeholder="ej: Python, Rust, SQL..." />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Emoji / Icono</label>
-            <input type="text" class="form-input" id="newCatIcon" placeholder="ej: 🐍" maxlength="4"/>
-          </div>
-        </div>
-        <button class="btn-save" onclick="saveCategory()" id="btnSaveCat">
-          ✦ Crear Categoría
-        </button>
+      <!-- Tabs -->
+      <div class="admin-tabs">
+        <button class="admin-tab active" onclick="switchAdminTab('create')">✦ Crear</button>
+        <button class="admin-tab" onclick="switchAdminTab('edit')">✎ Editar / Eliminar</button>
       </div>
 
-      <!-- New Topic -->
-      <div class="admin-card">
-        <div class="admin-card-title"><span>📘</span> Agregar Tema</div>
+      <!-- ── CREAR PANEL ── -->
+      <div class="admin-panel active" id="panel-create">
 
-        <div class="form-group">
-          <label class="form-label">Categoría</label>
-          <select class="form-select" id="topicCategory">
-            <option value="">— Selecciona una categoría —</option>
-          </select>
+        <!-- New Category -->
+        <div class="admin-card">
+          <div class="admin-card-title"><span>📦</span> Nueva Categoría</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nombre</label>
+              <input type="text" class="form-input" id="newCatName" placeholder="ej: Python, Rust, SQL..." />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Emoji / Icono</label>
+              <input type="text" class="form-input" id="newCatIcon" placeholder="ej: 🐍" maxlength="4"/>
+            </div>
+          </div>
+          <button class="btn-save" onclick="saveCategory()" id="btnSaveCat">
+            ✦ Crear Categoría
+          </button>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Nombre del concepto</label>
-          <input type="text" class="form-input" id="topicName" placeholder="ej: while, if, for, función..." />
+        <!-- New Topic -->
+        <div class="admin-card">
+          <div class="admin-card-title"><span>📘</span> Agregar Tema</div>
+          <div class="form-group">
+            <label class="form-label">Categoría</label>
+            <select class="form-select" id="topicCategory">
+              <option value="">— Selecciona una categoría —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre del concepto</label>
+            <input type="text" class="form-input" id="topicName" placeholder="ej: while, if, for, función..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Definición</label>
+            <textarea class="form-textarea" id="topicDef" placeholder="Explica qué es este concepto..."></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Uso / Cuándo usarlo</label>
+            <textarea class="form-textarea" id="topicUse" placeholder="Describe cuándo y cómo se usa..."></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Código de ejemplo</label>
+            <textarea class="form-textarea code-input" id="topicCode" placeholder="# Escribe el código aquí..."></textarea>
+          </div>
+          <button class="btn-save" onclick="saveTopic()" id="btnSaveTopic">
+            ✦ Guardar en Firebase
+          </button>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Definición</label>
-          <textarea class="form-textarea" id="topicDef" placeholder="Explica qué es este concepto..."></textarea>
+      </div><!-- /panel-create -->
+
+      <!-- ── EDITAR PANEL ── -->
+      <div class="admin-panel" id="panel-edit">
+
+        <!-- Edit Categories -->
+        <div class="admin-card">
+          <div class="admin-card-title"><span>📦</span> Categorías</div>
+          <div class="edit-list" id="editCatList">
+            <div class="edit-empty">Cargando categorías...</div>
+          </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Uso / Cuándo usarlo</label>
-          <textarea class="form-textarea" id="topicUse" placeholder="Describe cuándo y cómo se usa..."></textarea>
+        <!-- Edit Topics -->
+        <div class="admin-card">
+          <div class="admin-card-title"><span>📘</span> Temas</div>
+          <div class="form-group edit-select-cat">
+            <label class="form-label">Selecciona categoría para ver sus temas</label>
+            <select class="form-select" id="editTopicCatSelect" onchange="loadEditTopics()">
+              <option value="">— Selecciona una categoría —</option>
+            </select>
+          </div>
+          <div class="edit-list" id="editTopicList">
+            <div class="edit-empty">Selecciona una categoría arriba</div>
+          </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Código de ejemplo</label>
-          <textarea class="form-textarea code-input" id="topicCode" placeholder="# Escribe el código aquí..."></textarea>
-        </div>
+      </div><!-- /panel-edit -->
 
-        <button class="btn-save" onclick="saveTopic()" id="btnSaveTopic">
-          ✦ Guardar en Firebase
-        </button>
-      </div>
     </div>
   </div>
 </div>
@@ -1423,7 +1594,10 @@
     onSnapshot,
     query,
     orderBy,
-    serverTimestamp
+    serverTimestamp,
+    doc,
+    updateDoc,
+    deleteDoc
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import {
     getAuth,
@@ -1820,25 +1994,234 @@
       const cats = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       window._state.categories = cats;
       renderCategories(cats);
+      // sync create-tab select
       const sel = document.getElementById('topicCategory');
       const current = sel.value;
       sel.innerHTML = '<option value="">— Selecciona una categoría —</option>' +
         cats.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
       if (current) sel.value = current;
+      // sync edit-tab select
+      const sel2 = document.getElementById('editTopicCatSelect');
+      if (sel2) {
+        const cur2 = sel2.value;
+        sel2.innerHTML = '<option value="">— Selecciona una categoría —</option>' +
+          cats.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
+        if (cur2) sel2.value = cur2;
+      }
+      // refresh edit panel if visible
+      const editPanel = document.getElementById('panel-edit');
+      if (editPanel && editPanel.classList.contains('active')) renderEditPanel();
     });
   }
 
+  // ── Admin Tab Switcher ───────────────────────────
+  function switchAdminTab(tab) {
+    document.querySelectorAll('.admin-tab').forEach((t,i) => {
+      t.classList.toggle('active', (i === 0 && tab === 'create') || (i === 1 && tab === 'edit'));
+    });
+    document.getElementById('panel-create').classList.toggle('active', tab === 'create');
+    document.getElementById('panel-edit').classList.toggle('active', tab === 'edit');
+    if (tab === 'edit') renderEditPanel();
+  }
+
+  // ── Render Edit Panel ────────────────────────────
+  function renderEditPanel() {
+    const cats = window._state.categories;
+
+    // --- Categories list ---
+    const catList = document.getElementById('editCatList');
+    if (!cats.length) {
+      catList.innerHTML = '<div class="edit-empty">No hay categorías aún</div>';
+    } else {
+      catList.innerHTML = cats.map(cat => `
+        <div class="edit-item" id="edit-cat-item-${cat.id}">
+          <div class="edit-item-info">
+            <div class="edit-item-name">${cat.icon || '📁'} ${cat.name}</div>
+          </div>
+          <div class="edit-item-actions">
+            <button class="btn-edit" onclick="showEditCatForm('${cat.id}')">✎ Editar</button>
+            <button class="btn-delete" onclick="deleteCat('${cat.id}','${cat.name}')">✕</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // --- Topic category select sync ---
+    const sel = document.getElementById('editTopicCatSelect');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Selecciona una categoría —</option>' +
+      cats.map(c => `<option value="${c.id}">${c.icon || ''} ${c.name}</option>`).join('');
+    if (cur) { sel.value = cur; loadEditTopics(); }
+  }
+
+  // ── Show inline edit form for Category ───────────
+  function showEditCatForm(catId) {
+    // close any open form first
+    document.querySelectorAll('.edit-form').forEach(f => f.remove());
+    const cat = window._state.categories.find(c => c.id === catId);
+    if (!cat) return;
+    const item = document.getElementById('edit-cat-item-' + catId);
+    const form = document.createElement('div');
+    form.className = 'edit-form';
+    form.id = 'form-cat-' + catId;
+    form.innerHTML = `
+      <div class="edit-form-title">✎ Editando categoría</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Nombre</label>
+          <input type="text" class="form-input" id="ecat-name-${catId}" value="${cat.name}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Emoji</label>
+          <input type="text" class="form-input" id="ecat-icon-${catId}" value="${cat.icon || ''}" maxlength="4"/>
+        </div>
+      </div>
+      <div class="edit-form-actions">
+        <button class="btn-save-edit" onclick="updateCat('${catId}')">✦ Guardar cambios</button>
+        <button class="btn-cancel-edit" onclick="document.getElementById('form-cat-${catId}').remove()">Cancelar</button>
+      </div>
+    `;
+    item.insertAdjacentElement('afterend', form);
+  }
+
+  // ── Update Category ──────────────────────────────
+  async function updateCat(catId) {
+    if (!window._state.adminUser) return;
+    const name = document.getElementById('ecat-name-' + catId).value.trim();
+    const icon = document.getElementById('ecat-icon-' + catId).value.trim();
+    if (!name) { showToast('El nombre no puede estar vacío', 'error'); return; }
+    try {
+      await updateDoc(doc(db, 'categories', catId), { name, icon: icon || '📁' });
+      showToast('✦ Categoría actualizada', 'success');
+      document.getElementById('form-cat-' + catId)?.remove();
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  }
+
+  // ── Delete Category ──────────────────────────────
+  async function deleteCat(catId, name) {
+    if (!window._state.adminUser) return;
+    if (!confirm(`¿Eliminar la categoría "${name}"?\nSe eliminarán también todos sus temas.`)) return;
+    try {
+      // delete all topics first
+      const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
+      await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'categories', catId, 'topics', d.id))));
+      await deleteDoc(doc(db, 'categories', catId));
+      showToast('Categoría eliminada', 'success');
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  }
+
+  // ── Load Topics for Edit ─────────────────────────
+  async function loadEditTopics() {
+    const catId = document.getElementById('editTopicCatSelect').value;
+    const list = document.getElementById('editTopicList');
+    if (!catId) { list.innerHTML = '<div class="edit-empty">Selecciona una categoría arriba</div>'; return; }
+    list.innerHTML = '<div class="edit-empty">Cargando...</div>';
+    const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('createdAt', 'desc')));
+    const topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    window._state.topics[catId] = topics;
+    if (!topics.length) {
+      list.innerHTML = '<div class="edit-empty">Sin temas en esta categoría</div>';
+      return;
+    }
+    list.innerHTML = topics.map(t => `
+      <div class="edit-item" id="edit-topic-item-${t.id}">
+        <div class="edit-item-info">
+          <div class="edit-item-name">${t.name}</div>
+          <div class="edit-item-sub">${(t.definition || '').substring(0,60)}${(t.definition||'').length>60?'...':''}</div>
+        </div>
+        <div class="edit-item-actions">
+          <button class="btn-edit" onclick="showEditTopicForm('${catId}','${t.id}')">✎ Editar</button>
+          <button class="btn-delete" onclick="deleteTopic('${catId}','${t.id}','${t.name.replace(/'/g,"\\'")}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // ── Show inline edit form for Topic ──────────────
+  function showEditTopicForm(catId, topicId) {
+    document.querySelectorAll('.edit-form').forEach(f => f.remove());
+    const topics = window._state.topics[catId] || [];
+    const t = topics.find(x => x.id === topicId);
+    if (!t) return;
+    const item = document.getElementById('edit-topic-item-' + topicId);
+    const form = document.createElement('div');
+    form.className = 'edit-form';
+    form.id = 'form-topic-' + topicId;
+    const safeCode = (t.code || '').replace(/`/g, '\`').replace(/\$/g, '\$');
+    const safeDef  = (t.definition || '').replace(/`/g, '\`').replace(/\$/g, '\$');
+    const safeUse  = (t.usage || '').replace(/`/g, '\`').replace(/\$/g, '\$');
+    form.innerHTML = `
+      <div class="edit-form-title">✎ Editando tema</div>
+      <div class="form-group">
+        <label class="form-label">Nombre</label>
+        <input type="text" class="form-input" id="etopic-name-${topicId}" value="${t.name}" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Definición</label>
+        <textarea class="form-textarea" id="etopic-def-${topicId}">${t.definition || ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Uso</label>
+        <textarea class="form-textarea" id="etopic-use-${topicId}">${t.usage || ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Código</label>
+        <textarea class="form-textarea code-input" id="etopic-code-${topicId}">${t.code || ''}</textarea>
+      </div>
+      <div class="edit-form-actions">
+        <button class="btn-save-edit" onclick="updateTopic('${catId}','${topicId}')">✦ Guardar cambios</button>
+        <button class="btn-cancel-edit" onclick="document.getElementById('form-topic-${topicId}').remove()">Cancelar</button>
+      </div>
+    `;
+    item.insertAdjacentElement('afterend', form);
+  }
+
+  // ── Update Topic ─────────────────────────────────
+  async function updateTopic(catId, topicId) {
+    if (!window._state.adminUser) return;
+    const name       = document.getElementById('etopic-name-' + topicId).value.trim();
+    const definition = document.getElementById('etopic-def-'  + topicId).value.trim();
+    const usage      = document.getElementById('etopic-use-'  + topicId).value.trim();
+    const code       = document.getElementById('etopic-code-' + topicId).value.trim();
+    if (!name) { showToast('El nombre no puede estar vacío', 'error'); return; }
+    try {
+      await updateDoc(doc(db, 'categories', catId, 'topics', topicId), { name, definition, usage, code });
+      showToast('✦ Tema actualizado', 'success');
+      document.getElementById('form-topic-' + topicId)?.remove();
+      loadEditTopics();
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  }
+
+  // ── Delete Topic ─────────────────────────────────
+  async function deleteTopic(catId, topicId, name) {
+    if (!window._state.adminUser) return;
+    if (!confirm(`¿Eliminar el tema "${name}"?`)) return;
+    try {
+      await deleteDoc(doc(db, 'categories', catId, 'topics', topicId));
+      showToast('Tema eliminado', 'success');
+      loadEditTopics();
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  }
+
   // ── Expose globals (after all declarations) ─────
-  window.showView        = showView;
-  window.saveCategory    = saveCategory;
-  window.saveTopic       = saveTopic;
-  window.copyCode        = copyCode;
-  window.closeModal      = closeModal;
+  window.showView          = showView;
+  window.saveCategory      = saveCategory;
+  window.saveTopic         = saveTopic;
+  window.copyCode          = copyCode;
+  window.closeModal        = closeModal;
   window.handleAdminClick  = handleAdminClick;
   window.loginWithGoogle   = loginWithGoogle;
   window.logoutAdmin       = logoutAdmin;
   window.openCategory      = openCategory;
   window.openTopic         = openTopic;
+  window.switchAdminTab    = switchAdminTab;
+  window.showEditCatForm   = showEditCatForm;
+  window.updateCat         = updateCat;
+  window.deleteCat         = deleteCat;
+  window.loadEditTopics    = loadEditTopics;
+  window.showEditTopicForm = showEditTopicForm;
+  window.updateTopic       = updateTopic;
+  window.deleteTopic       = deleteTopic;
 
   // ── Init ─────────────────────────────────────────
   try { listenCategories(); } catch(e) { console.error('listenCategories error:', e); }
