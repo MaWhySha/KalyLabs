@@ -1435,6 +1435,8 @@
       font-family: 'JetBrains Mono', monospace;
     }
   </style>
+  <!-- Pyodide: motor Python WebAssembly — cargado en head para máxima compatibilidad -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 </head>
 <body>
 
@@ -1719,98 +1721,113 @@
 
 <!-- ===== PYODIDE ENGINE ===== -->
 <!--
-  Pyodide carga el intérprete de CPython (~10 MB) desde su CDN.
-  initPython() se llama al cargar la página.
-  runCode(code, outputEl) ejecuta Python y muestra stdout/stderr en el terminal.
-  Cualquier usuario puede ejecutar código — no requiere login.
+  Motor Python WebAssembly para KalyLabs.
+  - initializePyodide(): carga el motor y habilita el botón Run.
+  - runModalCode(): limpia terminal, ejecuta código, muestra errores en rojo.
+  - clearTerminal(): botón Limpiar de la terminal.
+  - Cualquier usuario puede ejecutar — no requiere login de admin.
 -->
 <script>
-  // Estado global del motor Python
-  window._pyodide = null;
+  // ── Estado global ────────────────────────────────
+  let pyodideInstance = null;
   window._pyodideReady = false;
-  window._pyodideLoading = false;
 
-  // Inicializa Pyodide de forma asíncrona
-  async function initPython() {
-    if (window._pyodideLoading || window._pyodideReady) return;
-    window._pyodideLoading = true;
-
-    try {
-      window._pyodide = await loadPyodide({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"
-      });
-      window._pyodideReady = true;
-
-      // Habilitar todos los botones de run
-      document.querySelectorAll('.run-btn').forEach(btn => {
-        btn.disabled = false;
-        btn.innerHTML = '▶ Ejecutar';
-      });
-      console.log('[KalyLabs] Pyodide listo ✓');
-    } catch(e) {
-      console.error('[KalyLabs] Error cargando Pyodide:', e);
-      document.querySelectorAll('.run-btn').forEach(btn => {
-        btn.disabled = true;
-        btn.innerHTML = '✕ Error Python';
-      });
-    }
-  }
-
-  // Ejecuta código Python y redirige stdout/stderr al elemento terminal
-  async function runCode(code, outputEl, wrapEl) {
-    if (!window._pyodideReady) return;
-
-    // Mostrar terminal
-    wrapEl.classList.add('visible');
-
-    // Limpiar salida anterior y añadir separador si ya había contenido
-    if (outputEl.innerHTML.trim()) {
-      outputEl.innerHTML += '<span class="py-info">── nueva ejecución ──</span>
-';
-    }
-
-    const py = window._pyodide;
-    let outputBuffer = '';
-
-    // Redirigir stdout y stderr de Python
-    py.setStdout({ batched: (text) => { outputBuffer += text + '
-'; } });
-    py.setStderr({ batched: (text) => { outputBuffer += text + '
-'; } });
-
-    try {
-      await py.runPythonAsync(code);
-      if (outputBuffer) {
-        outputEl.innerHTML += escapeHtml(outputBuffer);
-      } else {
-        outputEl.innerHTML += '<span class="py-info">(sin salida)</span>
-';
-      }
-    } catch(err) {
-      const msg = err.message || String(err);
-      outputEl.innerHTML += '<span class="py-err">' + escapeHtml(msg) + '</span>
-';
-    }
-
-    // Scroll al fondo
-    outputEl.scrollTop = outputEl.scrollHeight;
-  }
-
+  // ── Helper: escapar HTML ─────────────────────────
   function escapeHtml(str) {
-    return str
+    return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
   }
 
-  // Limpiar terminal
+  // ── Limpiar terminal ─────────────────────────────
   function clearTerminal(outputEl, wrapEl) {
-    outputEl.innerHTML = '';
+    outputEl.textContent = '';
     wrapEl.classList.remove('visible');
   }
+
+  // ── Inicialización robusta ───────────────────────
+  async function initializePyodide() {
+    try {
+      if (typeof loadPyodide === 'undefined') {
+        console.error('[KalyLabs] loadPyodide no detectado.');
+        return;
+      }
+
+      // Sin indexURL — usa automáticamente el CDN del script del head
+      pyodideInstance = await loadPyodide();
+
+      window._pyodideReady = true;
+      console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
+
+      // Habilitar el botón si ya está visible en pantalla
+      const runBtn = document.getElementById('runBtn');
+      if (runBtn && runBtn.style.display !== 'none') {
+        runBtn.disabled = false;
+        runBtn.innerHTML = '▶ Ejecutar';
+      }
+
+    } catch(err) {
+      console.error('[KalyLabs] Error al inicializar Pyodide:', err);
+      const runBtn = document.getElementById('runBtn');
+      if (runBtn) runBtn.innerHTML = '✕ Error al cargar';
+    }
+  }
+
+  // ── Ejecutar código del modal ────────────────────
+  async function runModalCode() {
+    if (!window._pyodideReady || !pyodideInstance) return;
+
+    const code   = window._state ? window._state.currentTopicCode : '';
+    const outEl  = document.getElementById('modalTerminalOut');
+    const wrapEl = document.getElementById('modalTerminalWrap');
+    const runBtn = document.getElementById('runBtn');
+    if (!code) return;
+
+    // Mostrar terminal y LIMPIAR antes de cada ejecución
+    wrapEl.classList.add('visible');
+    outEl.textContent = '';
+
+    // Deshabilitar botón durante ejecución
+    runBtn.disabled = true;
+    runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
+
+    // Redirigir stdout de Python a la terminal
+    pyodideInstance.setStdout({
+      batched: (text) => {
+        outEl.textContent += text + '\n';
+        outEl.scrollTop = outEl.scrollHeight;
+      }
+    });
+
+    // Capturar errores Python y mostrarlos en rojo en la terminal
+    try {
+      await pyodideInstance.runPythonAsync(code);
+      if (!outEl.textContent.trim()) {
+        const info = document.createElement('span');
+        info.className = 'py-info';
+        info.textContent = '(sin salida)';
+        outEl.appendChild(info);
+      }
+    } catch(err) {
+      const errSpan = document.createElement('span');
+      errSpan.className = 'py-err';
+      errSpan.textContent = err.message || String(err);
+      outEl.appendChild(errSpan);
+    }
+
+    outEl.scrollTop = outEl.scrollHeight;
+    runBtn.disabled = false;
+    runBtn.innerHTML = '▶ Ejecutar';
+  }
+
+  // Inicializar en cuanto el DOM esté listo
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializePyodide);
+  } else {
+    initializePyodide();
+  }
 </script>
-<!-- CDN de Pyodide — carga el motor WebAssembly de Python -->
-<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js" onload="initPython()"></script>
 
 <!-- ===== FIREBASE + APP JS ===== -->
 <script type="module">
@@ -2130,12 +2147,12 @@
         runBtn.innerHTML = '<span class="spin">◌</span> Cargando Python...';
         // Polling: habilitar en cuanto Pyodide esté listo
         const poll = setInterval(() => {
-          if (window._pyodideReady) {
+          if (window._pyodideReady && pyodideInstance) {
             runBtn.disabled = false;
             runBtn.innerHTML = '▶ Ejecutar';
             clearInterval(poll);
           }
-        }, 500);
+        }, 400);
       }
     }
 
@@ -2468,23 +2485,6 @@
     } catch(e) { showToast('Error: ' + e.message, 'error'); }
   }
 
-  // ── Pyodide: ejecutar código del modal ──────────
-  async function runModalCode() {
-    const code    = window._state.currentTopicCode;
-    const outEl   = document.getElementById('modalTerminalOut');
-    const wrapEl  = document.getElementById('modalTerminalWrap');
-    const runBtn  = document.getElementById('runBtn');
-    if (!code || !window._pyodideReady) return;
-
-    runBtn.disabled = true;
-    runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
-
-    await runCode(code, outEl, wrapEl);
-
-    runBtn.disabled = false;
-    runBtn.innerHTML = '▶ Ejecutar';
-  }
-
   // ── Expose globals (after all declarations) ─────
   window.showView          = showView;
   window.saveCategory      = saveCategory;
@@ -2496,7 +2496,6 @@
   window.logoutAdmin       = logoutAdmin;
   window.openCategory      = openCategory;
   window.openTopic         = openTopic;
-  window.runModalCode      = runModalCode;
   window.switchAdminTab    = switchAdminTab;
   window.showEditCatForm   = showEditCatForm;
   window.updateCat         = updateCat;
