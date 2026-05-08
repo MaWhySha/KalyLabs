@@ -2094,23 +2094,43 @@ sys.ps2 = ''
 
   // ── Syntax highlight (basic) ─────────────────────
   function highlight(code) {
-    // Limpia prefijos línea por línea antes del escape HTML
+    // Limpia prefijos de consola linea por linea
     const stripped = code
       .split('\n')
       .map(l => l.replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/i, ''))
       .join('\n')
       .trim();
+
+    // Escape HTML
     const escaped = stripped
       .replace(/&/g,'&amp;')
       .replace(/</g,'&lt;')
       .replace(/>/g,'&gt;');
 
-    return escaped
-      .replace(/(#[^\n]*)/g, '<span class="cmt">$1</span>')
-      .replace(/\b(def|class|import|from|return|if|else|elif|for|while|in|not|and|or|True|False|None|pass|break|continue|try|except|finally|with|as|lambda|yield|global|nonlocal|print|input|range|len|type|int|str|float|list|dict|set|tuple|bool)\b/g, '<span class="kw">$1</span>')
-      .replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?=\()/g, '<span class="fn">$1</span>')
-      .replace(/(["'`])(?:(?!\1)[^\\]|\\.)*?\1/g, '<span class="str">$&</span>')
-      .replace(/\b(\d+\.?\d*)\b/g, '<span class="num">$1</span>');
+    // Strings PRIMERO con placeholders para evitar que el regex de strings
+    // capture las comillas dentro de class="kw" y rompa el HTML mostrando "kw">
+    const strStore = [];
+    let safe = escaped.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, function(m) {
+      strStore.push('<span class="str">' + m + '</span>');
+      return '\x00STR' + (strStore.length - 1) + '\x00';
+    });
+
+    // Comentarios
+    safe = safe.replace(/(#[^\n]*)/g, '<span class="cmt">$1</span>');
+
+    // Keywords: ahora sin comillas en el texto, sin riesgo de romper atributos HTML
+    safe = safe.replace(/\b(def|class|import|from|return|if|else|elif|for|while|in|not|and|or|True|False|None|pass|break|continue|try|except|finally|with|as|lambda|yield|global|nonlocal|print|input|range|len|type|int|str|float|list|dict|set|tuple|bool)\b/g, '<span class="kw">$1</span>');
+
+    // Funciones
+    safe = safe.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?=\()/g, '<span class="fn">$1</span>');
+
+    // Numeros
+    safe = safe.replace(/\b(\d+\.?\d*)\b/g, '<span class="num">$1</span>');
+
+    // Restaurar strings
+    safe = safe.replace(/\x00STR(\d+)\x00/g, function(_, i) { return strStore[+i]; });
+
+    return safe;
   }
 
   // ── Render Categories ────────────────────────────
