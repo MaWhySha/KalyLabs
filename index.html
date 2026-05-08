@@ -1826,6 +1826,13 @@ builtins.input = custom_input
 `);
       console.log('[KalyLabs] input() parcheado con window.prompt ✓');
 
+      // Silenciar prompts del REPL interactivo de Pyodide (evita kw>, >>>, ...)
+      pyodideInstance.runPython(`
+import sys
+sys.ps1 = ''
+sys.ps2 = ''
+`);
+
       // Habilitar el botón si ya está visible en pantalla
       const runBtn = document.getElementById('runBtn');
       if (runBtn && runBtn.style.display !== 'none') {
@@ -2104,8 +2111,12 @@ builtins.input = custom_input
 
   // ── Syntax highlight (basic) ─────────────────────
   function highlight(code) {
-    // Limpia prefijos antes del escape HTML para que no queden en el output visual
-    const stripped = code.replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/gm, '').trim();
+    // Limpia prefijos línea por línea antes del escape HTML
+    const stripped = code
+      .split('\n')
+      .map(l => l.replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/i, ''))
+      .join('\n')
+      .trim();
     const escaped = stripped
       .replace(/&/g,'&amp;')
       .replace(/</g,'&lt;')
@@ -2270,12 +2281,13 @@ builtins.input = custom_input
     // Limpia prefijos de consola interactiva (kw>, >>>, ...) que el admin
     // pudo haber pegado desde una sesión de Python antes de guardarlo.
     const rawCode = topic.code || '';
-    // Limpieza robusta: elimina prefijos de consola interactiva en todas sus formas
-    // kw>, >>>, ... al inicio de línea (con o sin espacio posterior)
+    // Limpieza definitiva línea por línea: elimina kw>, >>>, ... en cualquier variante
     const code = rawCode
-      .replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/gm, '')  // prefijos al inicio de línea
-      .replace(/^[ \t]+$/gm, '')                           // líneas que quedaron solo con espacios
-      .replace(/\n{3,}/g, '\n\n')                         // colapsa más de 2 saltos seguidos
+      .split('\n')
+      .map(line => line.replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/i, ''))
+      .join('\n')
+      .replace(/^[ \t]+$/gm, '')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
     window._state.currentTopicCode = code;
     document.getElementById('modalCode').innerHTML = highlight(code);
