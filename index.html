@@ -1812,6 +1812,20 @@
       window._pyodideReady = true;
       console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
 
+      // ── Parchear input() para usar window.prompt ──
+      pyodideInstance.runPython(`
+import builtins
+import js
+
+def custom_input(prompt=""):
+    result = js.window.prompt(str(prompt) if prompt else "")
+    # Si el usuario cancela (null) o deja vacío, retorna string vacío
+    return "" if result is None else str(result)
+
+builtins.input = custom_input
+`);
+      console.log('[KalyLabs] input() parcheado con window.prompt ✓');
+
       // Habilitar el botón si ya está visible en pantalla
       const runBtn = document.getElementById('runBtn');
       if (runBtn && runBtn.style.display !== 'none') {
@@ -1845,12 +1859,40 @@
     runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
 
     // Redirigir stdout de Python a la terminal
+    // Se usa batched para acumular texto; el flush manual
+    // garantiza que prints previos al input() aparezcan antes del prompt.
+    let pendingOutput = '';
     pyodideInstance.setStdout({
       batched: (text) => {
         outEl.textContent += text + '\n';
         outEl.scrollTop = outEl.scrollHeight;
       }
     });
+
+    // Función auxiliar: fuerza el scroll/repaint antes del prompt del browser
+    const flushToTerminal = () => {
+      outEl.scrollTop = outEl.scrollHeight;
+      // Micro-pausa para que el navegador pinte el DOM antes de bloquear con prompt()
+      return new Promise(r => setTimeout(r, 30));
+    };
+
+    // Exponer en window ANTES de que Python lo use vía js.window
+    window._flush_terminal = flushToTerminal;
+
+    // Reparchear input() con flush visual antes del prompt del browser
+    pyodideInstance.runPython(`
+import builtins, js
+
+def custom_input(prompt=""):
+    import sys
+    if prompt:
+        sys.stdout.write(str(prompt))
+        sys.stdout.flush()
+    result = js.window.prompt(str(prompt) if prompt else "")
+    return "" if result is None else str(result)
+
+builtins.input = custom_input
+`);
 
     // Capturar errores Python y mostrarlos en rojo en la terminal
     try {
