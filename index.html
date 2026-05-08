@@ -1414,7 +1414,10 @@
 
   <!-- ===== LOGIN VIEW ===== -->
   <div class="view" id="view-login">
-    <div class="login-container">
+    <div style="padding:16px clamp(1rem,4vw,2rem) 0;">
+      <button class="back-btn" onclick="showView('home')">← Volver</button>
+    </div>
+    <div class="login-container" style="min-height:calc(100vh - 120px)">
       <div class="login-card">
         <div class="login-logo-wrap">
           <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1447,6 +1450,9 @@
   <!-- ===== ADMIN VIEW ===== -->
   <div class="view" id="view-admin">
     <div class="admin-container">
+      <div style="margin-bottom:24px;">
+        <button class="back-btn" onclick="showView('home')">← Volver al inicio</button>
+      </div>
       <div class="admin-header">
         <div class="admin-badge">⚙ Panel Admin</div>
         <h1 class="admin-title">KalyLabs Studio</h1>
@@ -1604,7 +1610,9 @@
     GoogleAuthProvider,
     signInWithPopup,
     signOut,
-    onAuthStateChanged
+    onAuthStateChanged,
+    browserLocalPersistence,
+    setPersistence
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   // ── Firebase Config ──────────────────────────────
@@ -1623,6 +1631,8 @@
   const db = getFirestore(fbApp);
   const auth = getAuth(fbApp);
   const provider = new GoogleAuthProvider();
+  // Mantener sesión activa entre recargas
+  setPersistence(auth, browserLocalPersistence).catch(() => {});
 
   // ── State ────────────────────────────────────────
   window._state = {
@@ -1701,6 +1711,8 @@
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       if (user.uid !== ALLOWED_ADMIN_UID) {
+        // Eliminar el registro creado en Firebase Auth antes de hacer signOut
+        try { await user.delete(); } catch(_) {}
         await signOut(auth);
         showLoginError('Acceso denegado. Esta cuenta no tiene permisos de administrador.');
         btn.disabled = false;
