@@ -1858,13 +1858,26 @@ builtins.input = custom_input
     runBtn.disabled = true;
     runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
 
-    // Redirigir stdout de Python a la terminal
-    // Se usa batched para acumular texto; el flush manual
-    // garantiza que prints previos al input() aparezcan antes del prompt.
-    let pendingOutput = '';
+    // Limpia prefijos de consola interactiva (kw>, >>>, ...) que Pyodide
+    // puede emitir como echo del código fuente antes de ejecutarlo.
+    function cleanOutput(text) {
+      return text.replace(/^(kw>|>>>|\.\.\.)\s*/gm, '');
+    }
+
+    // Redirigir stdout/stderr de Python a la terminal, sin prefijos.
     pyodideInstance.setStdout({
       batched: (text) => {
-        outEl.textContent += text + '\n';
+        const clean = cleanOutput(text);
+        if (!clean.trim()) return;          // ignora líneas que eran solo prefijos
+        outEl.textContent += clean + '\n';
+        outEl.scrollTop = outEl.scrollHeight;
+      }
+    });
+    pyodideInstance.setStderr({
+      batched: (text) => {
+        const clean = cleanOutput(text);
+        if (!clean.trim()) return;
+        outEl.textContent += clean + '\n';
         outEl.scrollTop = outEl.scrollHeight;
       }
     });
