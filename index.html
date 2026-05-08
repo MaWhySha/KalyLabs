@@ -2163,32 +2163,23 @@
     topicsList.innerHTML = '<div style="color:var(--text3);padding:24px;text-align:center">Cargando temas...</div>';
     showView('category');
 
-    // ── Consulta flexible: trae TODOS los temas sin filtrar por campo ──
-    // Ordena en cliente para no depender de índices de Firestore.
-    // Temas sin campo 'orden' reciben 999 y van al final.
+    // ── Una sola consulta sin orderBy — trae TODOS los docs ──────────
+    // orderBy en Firestore ignora documentos que no tienen el campo.
+    // Solución: traer todo y ordenar en cliente con sort() en JS.
+    // Temas sin 'order' van al final (valor por defecto 999).
     let topics = [];
     try {
-      // Intento 1: ordenar por 'order' en Firestore (campo en inglés, consistente con el input)
-      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('order', 'asc')));
+      const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
       topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch(_) {
-      try {
-        // Intento 2: ordenar por 'orden' (campo en español, versión anterior)
-        const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('orden', 'asc')));
-        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      } catch(__) {
-        // Intento 3: sin orderBy — trae todos los docs sin importar campos faltantes
-        const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
-        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      }
+    } catch(err) {
+      console.error('[KalyLabs] Error cargando temas:', err);
     }
 
-    // Ordenar en cliente: prioriza 'order', luego 'orden', luego 999
-    topics.sort((a, b) => {
-      const oa = (a.order !== undefined ? a.order : (a.orden !== undefined ? a.orden : 999));
-      const ob = (b.order !== undefined ? b.order : (b.orden !== undefined ? b.orden : 999));
-      return oa - ob;
-    });
+    // Sort en cliente: soporta campo 'order' (nuevo), 'orden' (legado), o ninguno
+    const sortedTopics = [...topics].sort((a, b) =>
+      (a.order ?? a.orden ?? 999) - (b.order ?? b.orden ?? 999)
+    );
+    topics = sortedTopics;
 
     window._state.topics[catId] = topics;
     document.getElementById('topicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
@@ -2501,24 +2492,15 @@
     list.innerHTML = '<div class="edit-empty">Cargando...</div>';
     let topics = [];
     try {
-      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('order', 'asc')));
+      const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
       topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch(_) {
-      try {
-        const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('orden', 'asc')));
-        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      } catch(__) {
-        // Sin índice — traer todos y ordenar en cliente
-        const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
-        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      }
+    } catch(err) {
+      console.error('[KalyLabs] Error cargando temas del admin:', err);
     }
-    // Ordenar en cliente: soporta campo 'order', 'orden', o ninguno
-    topics.sort((a, b) => {
-      const oa = (a.order !== undefined ? a.order : (a.orden !== undefined ? a.orden : 999));
-      const ob = (b.order !== undefined ? b.order : (b.orden !== undefined ? b.orden : 999));
-      return oa - ob;
-    });
+    // Sort en cliente — igual que la vista de usuario
+    topics = [...topics].sort((a, b) =>
+      (a.order ?? a.orden ?? 999) - (b.order ?? b.orden ?? 999)
+    );
     window._state.topics[catId] = topics;
     if (!topics.length) {
       list.innerHTML = '<div class="edit-empty">Sin temas en esta categoría</div>';
@@ -2527,9 +2509,18 @@
     list.innerHTML = topics.map(t => `
       <div class="edit-item" id="edit-topic-item-${t.id}">
         <div class="edit-item-info" style="display:flex;align-items:center;gap:10px;min-width:0">
-          <span class="orden-badge" title="Posición">${t.order !== undefined ? t.order : (t.orden !== undefined ? t.orden : '—')}</span>
+          <span class="orden-badge" title="Posición">
+            ${(t.order !== undefined || t.orden !== undefined)
+              ? (t.order ?? t.orden)
+              : '?'}
+          </span>
           <div style="min-width:0">
-            <div class="edit-item-name">${t.name}</div>
+            <div class="edit-item-name">
+              ${t.name}
+              ${(t.order === undefined && t.orden === undefined)
+                ? '<span style="font-size:0.68rem;color:var(--orange);font-weight:500;margin-left:6px">(Sin orden)</span>'
+                : ''}
+            </div>
             <div class="edit-item-sub">${(t.definition || '').substring(0,55)}${(t.definition||'').length>55?'...':''}</div>
           </div>
         </div>
