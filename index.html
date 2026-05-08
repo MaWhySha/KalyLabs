@@ -1166,22 +1166,24 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 14px;
+      padding: 8px 16px;
       background: var(--surface);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border2);
       border-radius: 8px;
-      color: var(--text3);
-      font-size: 0.78rem;
+      color: var(--text2);
+      font-size: 0.82rem;
       font-weight: 500;
       cursor: pointer;
       transition: var(--transition);
       font-family: 'DM Sans', sans-serif;
       white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
     .sort-btn:hover {
       background: var(--surface2);
-      color: var(--text);
-      border-color: var(--border2);
+      color: var(--accent3);
+      border-color: rgba(124,107,255,0.35);
+      box-shadow: 0 0 12px rgba(124,107,255,0.15);
     }
     .orden-badge {
       display: inline-flex;
@@ -1560,12 +1562,13 @@
       <div class="cat-header" id="catHeader"></div>
       <div class="section-header">
         <div class="section-title">Temas</div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <div class="section-meta" id="topicCount"></div>
-          <button class="sort-btn" id="sortToggleBtn" onclick="toggleTopicOrder()" style="display:none">
-            ↕ Primero los nuevos
-          </button>
-        </div>
+        <div class="section-meta" id="topicCount"></div>
+      </div>
+      <!-- Botón invertir orden — visible solo cuando hay >1 tema -->
+      <div id="sortBtnWrap" style="display:none;margin-bottom:20px;">
+        <button class="sort-btn" id="sortToggleBtn" onclick="toggleTopicOrder()">
+          ↕ Primero los nuevos
+        </button>
       </div>
       <div class="topics-list" id="topicsList"></div>
     </div>
@@ -1661,7 +1664,7 @@
             </div>
             <div class="form-group" style="max-width:130px">
               <label class="form-label">Posición / Orden</label>
-              <input type="number" class="form-input" id="topicOrden" placeholder="ej: 1" min="0" step="1" />
+              <input type="number" class="form-input" id="topicOrder" placeholder="Orden (ej: 10)" min="0" step="1" />
             </div>
           </div>
           <div class="form-group">
@@ -2131,14 +2134,14 @@
     `).join('');
   }
 
-  // Invertir orden en memoria — sin llamar Firebase
+  // Invertir orden en memoria — cero lecturas a Firebase
   function toggleTopicOrder() {
     const catId = window._state.currentCat?.id;
     if (!catId || !window._state.topics[catId]) return;
     window._state.topics[catId] = [...window._state.topics[catId]].reverse();
     window._state.topicsReversed = !window._state.topicsReversed;
     const btn = document.getElementById('sortToggleBtn');
-    btn.textContent = window._state.topicsReversed ? '↕ Primero los antiguos' : '↕ Primero los nuevos';
+    btn.textContent = window._state.topicsReversed ? '↕ Orden original' : '↕ Primero los nuevos';
     renderTopicsList(window._state.topics[catId], catId);
   }
 
@@ -2160,24 +2163,42 @@
     topicsList.innerHTML = '<div style="color:var(--text3);padding:24px;text-align:center">Cargando temas...</div>';
     showView('category');
 
-    // Ordenar por campo 'orden' ascendente; fallback a createdAt si no existe
+    // ── Consulta flexible: trae TODOS los temas sin filtrar por campo ──
+    // Ordena en cliente para no depender de índices de Firestore.
+    // Temas sin campo 'orden' reciben 999 y van al final.
     let topics = [];
     try {
-      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('orden', 'asc')));
+      // Intento 1: ordenar por 'order' en Firestore (campo en inglés, consistente con el input)
+      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('order', 'asc')));
       topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch(_) {
-      // Si el índice de 'orden' no existe aún, usar createdAt
-      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('createdAt', 'desc')));
-      topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      try {
+        // Intento 2: ordenar por 'orden' (campo en español, versión anterior)
+        const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('orden', 'asc')));
+        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch(__) {
+        // Intento 3: sin orderBy — trae todos los docs sin importar campos faltantes
+        const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
+        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
     }
+
+    // Ordenar en cliente: prioriza 'order', luego 'orden', luego 999
+    topics.sort((a, b) => {
+      const oa = (a.order !== undefined ? a.order : (a.orden !== undefined ? a.orden : 999));
+      const ob = (b.order !== undefined ? b.order : (b.orden !== undefined ? b.orden : 999));
+      return oa - ob;
+    });
 
     window._state.topics[catId] = topics;
     document.getElementById('topicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
 
-    // Mostrar botón de invertir solo si hay temas
-    const sortBtn = document.getElementById('sortToggleBtn');
-    sortBtn.style.display = topics.length > 1 ? 'inline-flex' : 'none';
+    // Mostrar/ocultar botón invertir
+    const sortBtnWrap = document.getElementById('sortBtnWrap');
+    const sortBtn     = document.getElementById('sortToggleBtn');
+    sortBtnWrap.style.display = topics.length > 1 ? 'block' : 'none';
     sortBtn.textContent = '↕ Primero los nuevos';
+    window._state.topicsReversed = false;
 
     renderTopicsList(topics, catId);
   };
@@ -2308,8 +2329,7 @@
     const definition = document.getElementById('topicDef').value.trim();
     const usage      = document.getElementById('topicUse').value.trim();
     const code       = document.getElementById('topicCode').value.trim();
-    const ordenRaw   = document.getElementById('topicOrden').value;
-    const orden      = ordenRaw !== '' ? Number(ordenRaw) : 9999;
+    const order      = parseInt(document.getElementById('topicOrder').value) || 999;
     if (!catId) { showToast('Selecciona una categoría', 'error'); return; }
     if (!name)  { showToast('Escribe el nombre del concepto', 'error'); return; }
     const btn = document.getElementById('btnSaveTopic');
@@ -2317,7 +2337,7 @@
     btn.classList.add('loading');
     try {
       await addDoc(collection(db, 'categories', catId, 'topics'), {
-        name, definition, usage, code, orden,
+        name, definition, usage, code, order,
         createdAt: serverTimestamp()
       });
       showToast('✦ Tema guardado: ' + name, 'success');
@@ -2325,7 +2345,7 @@
       document.getElementById('topicDef').value     = '';
       document.getElementById('topicUse').value     = '';
       document.getElementById('topicCode').value    = '';
-      document.getElementById('topicOrden').value   = '';
+      document.getElementById('topicOrder').value  = '';
       document.getElementById('topicCategory').value = '';
     } catch(e) {
       showToast('Error: ' + e.message, 'error');
@@ -2481,12 +2501,24 @@
     list.innerHTML = '<div class="edit-empty">Cargando...</div>';
     let topics = [];
     try {
-      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('orden', 'asc')));
+      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('order', 'asc')));
       topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch(_) {
-      const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('createdAt', 'desc')));
-      topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      try {
+        const snap = await getDocs(query(collection(db, 'categories', catId, 'topics'), orderBy('orden', 'asc')));
+        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch(__) {
+        // Sin índice — traer todos y ordenar en cliente
+        const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
+        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
     }
+    // Ordenar en cliente: soporta campo 'order', 'orden', o ninguno
+    topics.sort((a, b) => {
+      const oa = (a.order !== undefined ? a.order : (a.orden !== undefined ? a.orden : 999));
+      const ob = (b.order !== undefined ? b.order : (b.orden !== undefined ? b.orden : 999));
+      return oa - ob;
+    });
     window._state.topics[catId] = topics;
     if (!topics.length) {
       list.innerHTML = '<div class="edit-empty">Sin temas en esta categoría</div>';
@@ -2495,7 +2527,7 @@
     list.innerHTML = topics.map(t => `
       <div class="edit-item" id="edit-topic-item-${t.id}">
         <div class="edit-item-info" style="display:flex;align-items:center;gap:10px;min-width:0">
-          <span class="orden-badge" title="Posición">${t.orden !== undefined ? t.orden : '—'}</span>
+          <span class="orden-badge" title="Posición">${t.order !== undefined ? t.order : (t.orden !== undefined ? t.orden : '—')}</span>
           <div style="min-width:0">
             <div class="edit-item-name">${t.name}</div>
             <div class="edit-item-sub">${(t.definition || '').substring(0,55)}${(t.definition||'').length>55?'...':''}</div>
@@ -2531,7 +2563,7 @@
         </div>
         <div class="form-group" style="max-width:130px">
           <label class="form-label">Posición / Orden</label>
-          <input type="number" class="form-input" id="etopic-orden-${topicId}" value="${t.orden !== undefined ? t.orden : ''}" placeholder="ej: 1" min="0" />
+          <input type="number" class="form-input" id="etopic-order-${topicId}" value="${t.order !== undefined ? t.order : (t.orden !== undefined ? t.orden : '')}" placeholder="Orden (ej: 10)" min="0" />
         </div>
       </div>
       <div class="form-group">
@@ -2561,11 +2593,10 @@
     const definition = document.getElementById('etopic-def-'   + topicId).value.trim();
     const usage      = document.getElementById('etopic-use-'   + topicId).value.trim();
     const code       = document.getElementById('etopic-code-'  + topicId).value.trim();
-    const ordenRaw   = document.getElementById('etopic-orden-' + topicId).value;
-    const orden      = ordenRaw !== '' ? Number(ordenRaw) : 9999;
+    const order      = parseInt(document.getElementById('etopic-order-' + topicId).value) || 999;
     if (!name) { showToast('El nombre no puede estar vacío', 'error'); return; }
     try {
-      await updateDoc(doc(db, 'categories', catId, 'topics', topicId), { name, definition, usage, code, orden });
+      await updateDoc(doc(db, 'categories', catId, 'topics', topicId), { name, definition, usage, code, order });
       showToast('✦ Tema actualizado', 'success');
       document.getElementById('form-topic-' + topicId)?.remove();
       loadEditTopics();
