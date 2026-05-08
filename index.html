@@ -1871,11 +1871,19 @@ sys.ps2 = ''
       return text.replace(/^(kw>|>>>|\.\.\.)\s*/gm, '');
     }
 
-    // Redirigir stdout/stderr de Python a la terminal, sin prefijos.
+    // Función auxiliar: flush visual antes del prompt del browser
+    const flushToTerminal = () => {
+      outEl.scrollTop = outEl.scrollHeight;
+      return new Promise(r => setTimeout(r, 30));
+    };
+    window._flush_terminal = flushToTerminal;
+
+    // Redirigir stdout/stderr DESPUÉS de cualquier runPython de setup
+    // para que el parche de input() (ya aplicado en initializePyodide) no emita eco aquí.
     pyodideInstance.setStdout({
       batched: (text) => {
         const clean = cleanOutput(text);
-        if (!clean.trim()) return;          // ignora líneas que eran solo prefijos
+        if (!clean.trim()) return;
         outEl.textContent += clean + '\n';
         outEl.scrollTop = outEl.scrollHeight;
       }
@@ -1888,31 +1896,6 @@ sys.ps2 = ''
         outEl.scrollTop = outEl.scrollHeight;
       }
     });
-
-    // Función auxiliar: fuerza el scroll/repaint antes del prompt del browser
-    const flushToTerminal = () => {
-      outEl.scrollTop = outEl.scrollHeight;
-      // Micro-pausa para que el navegador pinte el DOM antes de bloquear con prompt()
-      return new Promise(r => setTimeout(r, 30));
-    };
-
-    // Exponer en window ANTES de que Python lo use vía js.window
-    window._flush_terminal = flushToTerminal;
-
-    // Reparchear input() con flush visual antes del prompt del browser
-    pyodideInstance.runPython(`
-import builtins, js
-
-def custom_input(prompt=""):
-    import sys
-    if prompt:
-        sys.stdout.write(str(prompt))
-        sys.stdout.flush()
-    result = js.window.prompt(str(prompt) if prompt else "")
-    return "" if result is None else str(result)
-
-builtins.input = custom_input
-`);
 
     // Capturar errores Python y mostrarlos en rojo en la terminal
     try {
