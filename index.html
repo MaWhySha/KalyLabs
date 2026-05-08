@@ -1443,7 +1443,7 @@
     appId: "1:194931824226:web:3165b1370268211932233b"
   };
 
-  const ALLOWED_ADMIN_EMAIL = "MaWhySha@gmail.com";
+  const ALLOWED_ADMIN_UID = "TBpk1EHkC5g7sayqFdLg1f9wGkS2";
 
   const fbApp = initializeApp(firebaseConfig);
   const db = getFirestore(fbApp);
@@ -1493,13 +1493,13 @@
 
   // ── Auth state listener ──────────────────────────
   onAuthStateChanged(auth, (user) => {
-    if (user && user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+    if (user && user.uid === ALLOWED_ADMIN_UID) {
       window._state.adminUser = user;
       updateNavForAdmin(user);
     } else {
       if (user) {
         signOut(auth);
-        showLoginError('Acceso denegado. Solo la cuenta autorizada puede acceder.');
+        showLoginError('Acceso denegado. Esta cuenta no tiene permisos de administrador.');
       }
       window._state.adminUser = null;
       updateNavForGuest();
@@ -1526,9 +1526,9 @@
     try {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      if (user.email.toLowerCase() !== ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+      if (user.uid !== ALLOWED_ADMIN_UID) {
         await signOut(auth);
-        showLoginError('Acceso denegado. Solo la cuenta autorizada puede acceder al panel.');
+        showLoginError('Acceso denegado. Esta cuenta no tiene permisos de administrador.');
         btn.disabled = false;
         btn.innerHTML = GOOGLE_SVG;
         return;
