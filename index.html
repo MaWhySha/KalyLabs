@@ -1320,6 +1320,120 @@
       color: var(--text3);
       font-size: 0.88rem;
     }
+
+    /* ========== PYODIDE — RUN BUTTON ========== */
+    .code-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .run-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: rgba(52,211,153,0.1);
+      border: 1px solid rgba(52,211,153,0.25);
+      border-radius: 8px;
+      color: #34d399;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      font-family: 'DM Sans', sans-serif;
+      white-space: nowrap;
+    }
+    .run-btn:hover:not(:disabled) {
+      background: rgba(52,211,153,0.2);
+      border-color: rgba(52,211,153,0.5);
+      box-shadow: 0 0 16px rgba(52,211,153,0.2);
+    }
+    .run-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: var(--text3);
+      background: var(--surface);
+      border-color: var(--border);
+    }
+    .run-btn .spin {
+      display: inline-block;
+      animation: spin 0.8s linear infinite;
+      font-style: normal;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ========== PYODIDE — TERMINAL ========== */
+    .py-terminal-wrap {
+      margin-top: 12px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(52,211,153,0.15);
+      background: #0e1a13;
+      display: none; /* shown when first run */
+    }
+    .py-terminal-wrap.visible { display: block; }
+
+    .py-terminal-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 14px;
+      background: rgba(52,211,153,0.07);
+      border-bottom: 1px solid rgba(52,211,153,0.1);
+    }
+    .py-terminal-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: rgba(52,211,153,0.6);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .py-clear-btn {
+      padding: 3px 10px;
+      background: transparent;
+      border: 1px solid rgba(52,211,153,0.2);
+      border-radius: 6px;
+      color: rgba(52,211,153,0.5);
+      font-size: 0.7rem;
+      cursor: pointer;
+      font-family: 'DM Sans', sans-serif;
+      transition: var(--transition);
+    }
+    .py-clear-btn:hover {
+      border-color: rgba(52,211,153,0.4);
+      color: rgba(52,211,153,0.9);
+    }
+    .py-terminal-output {
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(0.72rem, 2vw, 0.82rem);
+      line-height: 1.7;
+      color: #a3ffb0;
+      min-height: 48px;
+      max-height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .py-terminal-output .py-err { color: #ff7b7b; }
+    .py-terminal-output .py-info { color: rgba(163,255,176,0.45); font-style: italic; }
+
+    /* scrollbar inside terminal */
+    .py-terminal-output::-webkit-scrollbar { width: 4px; }
+    .py-terminal-output::-webkit-scrollbar-thumb { background: rgba(52,211,153,0.2); border-radius: 2px; }
+
+    /* Python badge on code-lang when it's python */
+    .py-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 0.68rem; padding: 2px 8px;
+      background: rgba(52,211,153,0.08);
+      border: 1px solid rgba(52,211,153,0.2);
+      border-radius: 6px;
+      color: #34d399;
+      font-family: 'JetBrains Mono', monospace;
+    }
   </style>
 </head>
 <body>
@@ -1578,16 +1692,125 @@
         <div class="code-block-wrapper">
           <div class="code-header">
             <span class="code-lang" id="modalLang">python</span>
-            <button class="copy-btn" id="copyBtn" onclick="copyCode()">📋 Copiar</button>
+            <div class="code-actions">
+              <button class="copy-btn" id="copyBtn" onclick="copyCode()">📋 Copiar</button>
+              <!-- Botón Ejecutar — solo visible si es Python, gestionado por openTopic() -->
+              <button class="run-btn" id="runBtn" onclick="runModalCode()" disabled style="display:none">
+                <span class="spin">◌</span> Cargando Python...
+              </button>
+            </div>
           </div>
           <div class="code-block">
             <code id="modalCode"></code>
+          </div>
+          <!-- Terminal de salida de Python -->
+          <div class="py-terminal-wrap" id="modalTerminalWrap">
+            <div class="py-terminal-bar">
+              <span class="py-terminal-label">▸ output</span>
+              <button class="py-clear-btn" onclick="clearTerminal(document.getElementById('modalTerminalOut'), document.getElementById('modalTerminalWrap'))">Limpiar</button>
+            </div>
+            <div class="py-terminal-output" id="modalTerminalOut"></div>
           </div>
         </div>
       </div>
     </div>
   </div>
 </div>
+
+<!-- ===== PYODIDE ENGINE ===== -->
+<!--
+  Pyodide carga el intérprete de CPython (~10 MB) desde su CDN.
+  initPython() se llama al cargar la página.
+  runCode(code, outputEl) ejecuta Python y muestra stdout/stderr en el terminal.
+  Cualquier usuario puede ejecutar código — no requiere login.
+-->
+<script>
+  // Estado global del motor Python
+  window._pyodide = null;
+  window._pyodideReady = false;
+  window._pyodideLoading = false;
+
+  // Inicializa Pyodide de forma asíncrona
+  async function initPython() {
+    if (window._pyodideLoading || window._pyodideReady) return;
+    window._pyodideLoading = true;
+
+    try {
+      window._pyodide = await loadPyodide({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/"
+      });
+      window._pyodideReady = true;
+
+      // Habilitar todos los botones de run
+      document.querySelectorAll('.run-btn').forEach(btn => {
+        btn.disabled = false;
+        btn.innerHTML = '▶ Ejecutar';
+      });
+      console.log('[KalyLabs] Pyodide listo ✓');
+    } catch(e) {
+      console.error('[KalyLabs] Error cargando Pyodide:', e);
+      document.querySelectorAll('.run-btn').forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '✕ Error Python';
+      });
+    }
+  }
+
+  // Ejecuta código Python y redirige stdout/stderr al elemento terminal
+  async function runCode(code, outputEl, wrapEl) {
+    if (!window._pyodideReady) return;
+
+    // Mostrar terminal
+    wrapEl.classList.add('visible');
+
+    // Limpiar salida anterior y añadir separador si ya había contenido
+    if (outputEl.innerHTML.trim()) {
+      outputEl.innerHTML += '<span class="py-info">── nueva ejecución ──</span>
+';
+    }
+
+    const py = window._pyodide;
+    let outputBuffer = '';
+
+    // Redirigir stdout y stderr de Python
+    py.setStdout({ batched: (text) => { outputBuffer += text + '
+'; } });
+    py.setStderr({ batched: (text) => { outputBuffer += text + '
+'; } });
+
+    try {
+      await py.runPythonAsync(code);
+      if (outputBuffer) {
+        outputEl.innerHTML += escapeHtml(outputBuffer);
+      } else {
+        outputEl.innerHTML += '<span class="py-info">(sin salida)</span>
+';
+      }
+    } catch(err) {
+      const msg = err.message || String(err);
+      outputEl.innerHTML += '<span class="py-err">' + escapeHtml(msg) + '</span>
+';
+    }
+
+    // Scroll al fondo
+    outputEl.scrollTop = outputEl.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // Limpiar terminal
+  function clearTerminal(outputEl, wrapEl) {
+    outputEl.innerHTML = '';
+    wrapEl.classList.remove('visible');
+  }
+</script>
+<!-- CDN de Pyodide — carga el motor WebAssembly de Python -->
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js" onload="initPython()"></script>
 
 <!-- ===== FIREBASE + APP JS ===== -->
 <script type="module">
@@ -1876,7 +2099,9 @@
     document.getElementById('modalTitle').textContent = topic.name;
     document.getElementById('modalDef').textContent = topic.definition || '—';
     document.getElementById('modalUse').textContent = topic.usage || '—';
-    document.getElementById('modalLang').textContent = getLangLabel(cat ? cat.name : '');
+
+    const lang = getLangLabel(cat ? cat.name : '');
+    document.getElementById('modalLang').textContent = lang;
 
     const code = topic.code || '';
     window._state.currentTopicCode = code;
@@ -1885,6 +2110,34 @@
     const copyBtn = document.getElementById('copyBtn');
     copyBtn.textContent = '📋 Copiar';
     copyBtn.className = 'copy-btn';
+
+    // ── Pyodide: mostrar botón Run solo si es Python ──
+    const runBtn  = document.getElementById('runBtn');
+    const termOut = document.getElementById('modalTerminalOut');
+    const termWrap = document.getElementById('modalTerminalWrap');
+    // Limpiar terminal al abrir nuevo tema
+    termOut.innerHTML = '';
+    termWrap.classList.remove('visible');
+
+    const isPython = lang === 'python';
+    runBtn.style.display = isPython ? 'flex' : 'none';
+    if (isPython) {
+      if (window._pyodideReady) {
+        runBtn.disabled = false;
+        runBtn.innerHTML = '▶ Ejecutar';
+      } else {
+        runBtn.disabled = true;
+        runBtn.innerHTML = '<span class="spin">◌</span> Cargando Python...';
+        // Polling: habilitar en cuanto Pyodide esté listo
+        const poll = setInterval(() => {
+          if (window._pyodideReady) {
+            runBtn.disabled = false;
+            runBtn.innerHTML = '▶ Ejecutar';
+            clearInterval(poll);
+          }
+        }, 500);
+      }
+    }
 
     document.getElementById('topicModal').classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -2215,6 +2468,23 @@
     } catch(e) { showToast('Error: ' + e.message, 'error'); }
   }
 
+  // ── Pyodide: ejecutar código del modal ──────────
+  async function runModalCode() {
+    const code    = window._state.currentTopicCode;
+    const outEl   = document.getElementById('modalTerminalOut');
+    const wrapEl  = document.getElementById('modalTerminalWrap');
+    const runBtn  = document.getElementById('runBtn');
+    if (!code || !window._pyodideReady) return;
+
+    runBtn.disabled = true;
+    runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
+
+    await runCode(code, outEl, wrapEl);
+
+    runBtn.disabled = false;
+    runBtn.innerHTML = '▶ Ejecutar';
+  }
+
   // ── Expose globals (after all declarations) ─────
   window.showView          = showView;
   window.saveCategory      = saveCategory;
@@ -2226,6 +2496,7 @@
   window.logoutAdmin       = logoutAdmin;
   window.openCategory      = openCategory;
   window.openTopic         = openTopic;
+  window.runModalCode      = runModalCode;
   window.switchAdminTab    = switchAdminTab;
   window.showEditCatForm   = showEditCatForm;
   window.updateCat         = updateCat;
