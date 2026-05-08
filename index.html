@@ -2265,7 +2265,10 @@ builtins.input = custom_input
     const lang = getLangLabel(cat ? cat.name : '');
     document.getElementById('modalLang').textContent = lang;
 
-    const code = topic.code || '';
+    // Limpia prefijos de consola interactiva (kw>, >>>, ...) que el admin
+    // pudo haber pegado desde una sesión de Python antes de guardarlo.
+    const rawCode = topic.code || '';
+    const code = rawCode.replace(/^(kw>|>>>|\.\.\.)[\t ]*/gm, '');
     window._state.currentTopicCode = code;
     document.getElementById('modalCode').innerHTML = highlight(code);
 
