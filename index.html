@@ -1459,32 +1459,10 @@
     adminUser: null,
   };
 
-  // ── Expose functions globally ────────────────────
-  window.showView = showView;
-  window.saveCategory = saveCategory;
-  window.saveTopic = saveTopic;
-  window.copyCode = copyCode;
-  window.closeModal = closeModal;
-  window.handleAdminClick = handleAdminClick;
-  window.loginWithGoogle = loginWithGoogle;
-  window.logoutAdmin = logoutAdmin;
+  // ── Google SVG helper ────────────────────────────
+  const GOOGLE_SVG = `<svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.2 30.2 0 24 0 14.7 0 6.7 5.4 2.6 13.4l7.8 6C12.4 13.3 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-3.4-.4-5H24v9.5h12.7c-.5 2.8-2.2 5.2-4.7 6.8l7.3 5.7c4.3-4 6.8-9.9 6.8-17z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.8-6C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.6l7.8-6z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.3-5.7c-2 1.3-4.5 2.1-7.9 2.1-6.3 0-11.6-3.8-13.6-9.2l-7.8 6C6.7 42.6 14.7 48 24 48z"/></svg> Continuar con Google`;
 
-  // ── Auth state listener ──────────────────────────
-  onAuthStateChanged(auth, (user) => {
-    if (user && user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
-      window._state.adminUser = user;
-      updateNavForAdmin(user);
-    } else {
-      if (user) {
-        // signed in but wrong account — sign them out
-        signOut(auth);
-        showLoginError('Acceso denegado. Solo la cuenta autorizada puede acceder.');
-      }
-      window._state.adminUser = null;
-      updateNavForGuest();
-    }
-  });
-
+  // ── Auth UI helpers ──────────────────────────────
   function updateNavForAdmin(user) {
     const navActions = document.getElementById('navActions');
     navActions.innerHTML = `
@@ -1502,10 +1480,33 @@
     const navActions = document.getElementById('navActions');
     navActions.innerHTML = `
       <button class="nav-btn nav-btn-ghost" onclick="showView('home')">Explorar</button>
-      <button class="nav-btn nav-btn-primary" id="navAdminBtn" onclick="handleAdminClick()">⚙ Admin</button>
+      <button class="nav-btn nav-btn-primary" onclick="handleAdminClick()">⚙ Admin</button>
     `;
   }
 
+  function showLoginError(msg) {
+    const errEl = document.getElementById('loginError');
+    if (!errEl) return;
+    errEl.textContent = msg;
+    errEl.classList.add('visible');
+  }
+
+  // ── Auth state listener ──────────────────────────
+  onAuthStateChanged(auth, (user) => {
+    if (user && user.email.toLowerCase() === ALLOWED_ADMIN_EMAIL.toLowerCase()) {
+      window._state.adminUser = user;
+      updateNavForAdmin(user);
+    } else {
+      if (user) {
+        signOut(auth);
+        showLoginError('Acceso denegado. Solo la cuenta autorizada puede acceder.');
+      }
+      window._state.adminUser = null;
+      updateNavForGuest();
+    }
+  });
+
+  // ── Login / Logout ────────────────────────────────
   function handleAdminClick() {
     if (window._state.adminUser) {
       showView('admin');
@@ -1514,46 +1515,38 @@
     }
   }
 
-  // ── Login / Logout ────────────────────────────────
-  window.loginWithGoogle = async function() {
+  async function loginWithGoogle() {
     const btn = document.getElementById('btnGoogleLogin');
     const errEl = document.getElementById('loginError');
+    if (!btn) return;
     btn.disabled = true;
     btn.textContent = 'Iniciando sesión...';
-    errEl.classList.remove('visible');
+    if (errEl) errEl.classList.remove('visible');
 
     try {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-
       if (user.email.toLowerCase() !== ALLOWED_ADMIN_EMAIL.toLowerCase()) {
         await signOut(auth);
         showLoginError('Acceso denegado. Solo la cuenta autorizada puede acceder al panel.');
         btn.disabled = false;
-        btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.2 30.2 0 24 0 14.7 0 6.7 5.4 2.6 13.4l7.8 6C12.4 13.3 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-3.4-.4-5H24v9.5h12.7c-.5 2.8-2.2 5.2-4.7 6.8l7.3 5.7c4.3-4 6.8-9.9 6.8-17z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.8-6C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.6l7.8-6z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.3-5.7c-2 1.3-4.5 2.1-7.9 2.1-6.3 0-11.6-3.8-13.6-9.2l-7.8 6C6.7 42.6 14.7 48 24 48z"/></svg> Continuar con Google`;
+        btn.innerHTML = GOOGLE_SVG;
         return;
       }
-
       showToast('✦ Bienvenido, ' + (user.displayName || user.email), 'success');
       showView('admin');
     } catch(e) {
       showLoginError('Error al iniciar sesión. Inténtalo de nuevo.');
       btn.disabled = false;
-      btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.2 30.2 0 24 0 14.7 0 6.7 5.4 2.6 13.4l7.8 6C12.4 13.3 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-3.4-.4-5H24v9.5h12.7c-.5 2.8-2.2 5.2-4.7 6.8l7.3 5.7c4.3-4 6.8-9.9 6.8-17z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.8-6C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.6l7.8-6z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.3-5.7c-2 1.3-4.5 2.1-7.9 2.1-6.3 0-11.6-3.8-13.6-9.2l-7.8 6C6.7 42.6 14.7 48 24 48z"/></svg> Continuar con Google`;
+      btn.innerHTML = GOOGLE_SVG;
     }
-  };
+  }
 
-  window.logoutAdmin = async function() {
+  async function logoutAdmin() {
     await signOut(auth);
     window._state.adminUser = null;
     showToast('Sesión cerrada', 'success');
     showView('home');
-  };
-
-  function showLoginError(msg) {
-    const errEl = document.getElementById('loginError');
-    errEl.textContent = msg;
-    errEl.classList.add('visible');
   }
 
   // ── Color helper ─────────────────────────────────
@@ -1835,13 +1828,24 @@
     });
   }
 
+  // ── Expose globals (after all declarations) ─────
+  window.showView        = showView;
+  window.saveCategory    = saveCategory;
+  window.saveTopic       = saveTopic;
+  window.copyCode        = copyCode;
+  window.closeModal      = closeModal;
+  window.handleAdminClick  = handleAdminClick;
+  window.loginWithGoogle   = loginWithGoogle;
+  window.logoutAdmin       = logoutAdmin;
+  window.openCategory      = openCategory;
+  window.openTopic         = openTopic;
+
   // ── Init ─────────────────────────────────────────
-  window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-      document.getElementById('loadingScreen').classList.add('hidden');
-    }, 1400);
-    listenCategories();
-  });
+  try { listenCategories(); } catch(e) { console.error('listenCategories error:', e); }
+  setTimeout(() => {
+    const ls = document.getElementById('loadingScreen');
+    if (ls) ls.classList.add('hidden');
+  }, 1400);
 </script>
 </body>
 </html>
