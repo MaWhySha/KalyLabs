@@ -1865,26 +1865,24 @@
       window._pyodideReady = true;
       console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
 
-      // ── Parchear input() ─────────────────────────────
-      // Antes de abrir el prompt, fuerza que el navegador pinte
-      // el output pendiente (los print anteriores) para que el usuario
-      // los vea en la terminal mientras escribe su respuesta.
+      // ── Parchear input() para usar window.prompt ──
+      // El popup incluye el output reciente de la terminal para que
+      // el usuario vea las opciones/contexto sin tener que cambiar de ventana.
       pyodideInstance.runPython(`
 import builtins
 import js
-import asyncio
 
-async def custom_input(prompt=""):
-    # Forzar flush del stdout para que los print() aparezcan antes del popup
-    await asyncio.sleep(0)
-    js.window._flushTerminalOutput()
-    # Mostrar el prompt de la terminal también en el popup para dar contexto
-    result = js.window.prompt(str(prompt) if prompt else "")
+def custom_input(prompt=""):
+    # Leer las últimas líneas del output de la terminal (ventana 1)
+    # para mostrarlas como contexto en el popup (ventana 2)
+    terminal_context = js.window._getTerminalContext()
+    full_prompt = (terminal_context + "\n" + str(prompt)) if terminal_context else str(prompt)
+    result = js.window.prompt(full_prompt if full_prompt else "")
     return "" if result is None else str(result)
 
 builtins.input = custom_input
 `);
-      console.log('[KalyLabs] input() parcheado ✓');
+      console.log('[KalyLabs] input() parcheado con window.prompt ✓');
 
       // Silenciar prompts del REPL interactivo de Pyodide (evita kw>, >>>, ...)
       pyodideInstance.runPython(`
@@ -1931,16 +1929,25 @@ sys.ps2 = ''
       return text.replace(/^(kw>|>>>|\.\.\.)\s*/gm, '');
     }
 
-    // Función auxiliar: flush visual antes del prompt del browser.
-    // Python la llama (via js.window._flushTerminalOutput) justo antes
-    // de abrir window.prompt, así el usuario ve los print() en la terminal.
-    window._flushTerminalOutput = function() {
+    // Función auxiliar: flush visual antes del prompt del browser
+    const flushToTerminal = () => {
       outEl.scrollTop = outEl.scrollHeight;
-      // Forzar repaint síncrono del navegador
-      void outEl.offsetHeight;
+      return new Promise(r => setTimeout(r, 30));
+    };
+    window._flush_terminal = flushToTerminal;
+
+    // Exponer el contenido de la terminal para que custom_input
+    // pueda incluirlo como contexto en el window.prompt
+    window._getTerminalContext = function() {
+      const text = outEl.textContent || '';
+      // Tomar las últimas 20 líneas (suficiente para ver menús/opciones)
+      const lines = text.split('\n').filter(l => l.trim() !== '');
+      const last = lines.slice(-20).join('\n');
+      return last;
     };
 
-    // Redirigir stdout/stderr a la terminal
+    // Redirigir stdout/stderr DESPUÉS de cualquier runPython de setup
+    // para que el parche de input() (ya aplicado en initializePyodide) no emita eco aquí.
     pyodideInstance.setStdout({
       batched: (text) => {
         const clean = cleanOutput(text);
