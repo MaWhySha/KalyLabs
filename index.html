@@ -1924,22 +1924,15 @@ sys.ps2 = ''
       return text.replace(/^(kw>|>>>|\.\.\.)\s*/gm, '');
     }
 
-    // Función auxiliar: flush visual antes del prompt del browser
-    const flushToTerminal = () => {
-      outEl.scrollTop = outEl.scrollHeight;
-      return new Promise(r => setTimeout(r, 30));
-    };
-    window._flush_terminal = flushToTerminal;
-
-    // Exponer contexto de terminal para el prompt
+    // Exponer el contenido actual de la terminal para usarlo en el prompt
     window._getTerminalContext = function() {
       const text = outEl.textContent || '';
       const lines = text.split('\n').filter(l => l.trim() !== '');
       return lines.slice(-20).join('\n');
     };
 
-    // Redefinir custom_input aquí donde _getTerminalContext ya existe.
-    // Así el popup muestra las opciones/prints previos junto a la pregunta.
+    // Redefinir custom_input ANTES de activar setStdout para evitar eco en terminal.
+    // Lee el output de la terminal y lo incluye en el popup → el usuario ve las opciones.
     pyodideInstance.runPython(`
 import builtins, js
 
@@ -1952,7 +1945,7 @@ def custom_input(prompt=""):
 builtins.input = custom_input
 `);
 
-    // Redirigir stdout/stderr
+    // Redirigir stdout/stderr — se activa DESPUÉS del runPython de arriba
     pyodideInstance.setStdout({
       batched: (text) => {
         const clean = cleanOutput(text);
