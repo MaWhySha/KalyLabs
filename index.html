@@ -967,6 +967,52 @@
       line-height: 1.6;
     }
 
+    /* Code type selector in admin */
+    .code-type-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .code-type-btn {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1.5px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: var(--text2);
+      font-size: 0.78rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .2s;
+      letter-spacing: .03em;
+    }
+    .code-type-btn.active {
+      border-color: var(--accent);
+      background: rgba(52,211,153,0.12);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    /* Shell/cmd block in modal */
+    .shell-block {
+      background: #0d1117;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 18px 20px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      display: none;
+    }
+    .shell-block.visible { display: block; }
+    .shell-line { display: flex; align-items: flex-start; gap: 8px; }
+    .shell-prompt { color: #34d399; user-select: none; flex-shrink: 0; }
+    .shell-cmd    { color: #e2e8f0; }
+    .shell-comment { color: #6b7280; font-style: italic; }
+    .shell-output { color: #94a3b8; padding-left: 18px; }
+
     .form-textarea.code-input {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.82rem;
@@ -1677,7 +1723,12 @@
           </div>
           <div class="form-group">
             <label class="form-label">Código de ejemplo</label>
-            <textarea class="form-textarea code-input" id="topicCode" placeholder="# Escribe el código aquí..."></textarea>
+            <div class="code-type-selector">
+              <button class="code-type-btn active" id="ctype-python" onclick="setCodeType('python')">🐍 Python</button>
+              <button class="code-type-btn"         id="ctype-shell"  onclick="setCodeType('shell')">$ Terminal / Git</button>
+            </div>
+            <input type="hidden" id="topicCodeType" value="python" />
+            <textarea class="form-textarea code-input" id="topicCode" placeholder="# Escribe el código Python aquí..."></textarea>
           </div>
           <button class="btn-save" onclick="saveTopic()" id="btnSaveTopic">
             ✦ Guardar en Firebase
@@ -1757,6 +1808,8 @@
           <div class="code-block">
             <code id="modalCode"></code>
           </div>
+          <!-- Shell / cmd block (Git, terminal commands) -->
+          <div class="shell-block" id="modalShell"></div>
           <!-- Terminal de salida de Python -->
           <div class="py-terminal-wrap" id="modalTerminalWrap">
             <div class="py-terminal-bar">
@@ -2283,8 +2336,10 @@ sys.ps2 = ''
 
     // Limpia prefijos de consola interactiva (kw>, >>>, ...) que el admin
     // pudo haber pegado desde una sesión de Python antes de guardarlo.
-    const rawCode = topic.code || '';
-    // Limpieza definitiva línea por línea: elimina kw>, >>>, ... en cualquier variante
+    const rawCode  = topic.code || '';
+    const codeType = topic.codeType || 'python';
+
+    // Limpia prefijos de consola línea por línea
     const code = rawCode
       .split('\n')
       .map(line => line.replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/i, ''))
@@ -2292,8 +2347,25 @@ sys.ps2 = ''
       .replace(/^[ \t]+$/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+
     window._state.currentTopicCode = code;
-    document.getElementById('modalCode').innerHTML = highlight(code);
+    window._state.currentCodeType  = codeType;
+
+    const codeBlock  = document.getElementById('modalCode').parentElement;
+    const shellBlock = document.getElementById('modalShell');
+
+    if (codeType === 'shell') {
+      // ── Shell/terminal mode ───────────────────────────────────────────────
+      codeBlock.style.display  = 'none';
+      shellBlock.classList.add('visible');
+      shellBlock.innerHTML = renderShell(code);
+    } else {
+      // ── Python mode ───────────────────────────────────────────────────────
+      codeBlock.style.display  = '';
+      shellBlock.classList.remove('visible');
+      shellBlock.innerHTML = '';
+      document.getElementById('modalCode').innerHTML = highlight(code);
+    }
 
     const copyBtn = document.getElementById('copyBtn');
     copyBtn.textContent = '📋 Copiar';
@@ -2307,7 +2379,7 @@ sys.ps2 = ''
     termOut.innerHTML = '';
     termWrap.classList.remove('visible');
 
-    const isPython = lang === 'python';
+    const isPython = codeType === 'python';
     runBtn.style.display = isPython ? 'flex' : 'none';
     if (isPython) {
       if (window._pyodideReady) {
@@ -2401,6 +2473,7 @@ sys.ps2 = ''
     const definition = document.getElementById('topicDef').value.trim();
     const usage      = document.getElementById('topicUse').value.trim();
     const code       = document.getElementById('topicCode').value.trim();
+    const codeType   = document.getElementById('topicCodeType').value || 'python';
     const order      = parseInt(document.getElementById('topicOrder').value) || 999;
     if (!catId) { showToast('Selecciona una categoría', 'error'); return; }
     if (!name)  { showToast('Escribe el nombre del concepto', 'error'); return; }
@@ -2409,16 +2482,17 @@ sys.ps2 = ''
     btn.classList.add('loading');
     try {
       await addDoc(collection(db, 'categories', catId, 'topics'), {
-        name, definition, usage, code, order,
+        name, definition, usage, code, codeType, order,
         createdAt: serverTimestamp()
       });
       showToast('✦ Tema guardado: ' + name, 'success');
-      document.getElementById('topicName').value    = '';
-      document.getElementById('topicDef').value     = '';
-      document.getElementById('topicUse').value     = '';
-      document.getElementById('topicCode').value    = '';
-      document.getElementById('topicOrder').value  = '';
+      document.getElementById('topicName').value     = '';
+      document.getElementById('topicDef').value      = '';
+      document.getElementById('topicUse').value      = '';
+      document.getElementById('topicCode').value     = '';
+      document.getElementById('topicOrder').value    = '';
       document.getElementById('topicCategory').value = '';
+      setCodeType('python'); // reset selector
     } catch(e) {
       showToast('Error: ' + e.message, 'error');
     }
@@ -2648,6 +2722,11 @@ sys.ps2 = ''
       </div>
       <div class="form-group">
         <label class="form-label">Código</label>
+        <div class="code-type-selector">
+          <button class="code-type-btn ${t.codeType === 'shell' ? '' : 'active'}" id="ectype-python-${topicId}" onclick="setEditCodeType('${topicId}','python')">🐍 Python</button>
+          <button class="code-type-btn ${t.codeType === 'shell' ? 'active' : ''}" id="ectype-shell-${topicId}"  onclick="setEditCodeType('${topicId}','shell')">$ Terminal / Git</button>
+        </div>
+        <input type="hidden" id="etopic-codeType-${topicId}" value="${t.codeType || 'python'}" />
         <textarea class="form-textarea code-input" id="etopic-code-${topicId}">${t.code || ''}</textarea>
       </div>
       <div class="edit-form-actions">
@@ -2664,11 +2743,12 @@ sys.ps2 = ''
     const name       = document.getElementById('etopic-name-'  + topicId).value.trim();
     const definition = document.getElementById('etopic-def-'   + topicId).value.trim();
     const usage      = document.getElementById('etopic-use-'   + topicId).value.trim();
-    const code       = document.getElementById('etopic-code-'  + topicId).value.trim();
+    const code       = document.getElementById('etopic-code-'     + topicId).value.trim();
+    const codeType   = document.getElementById('etopic-codeType-' + topicId)?.value || 'python';
     const order      = parseInt(document.getElementById('etopic-order-' + topicId).value) || 999;
     if (!name) { showToast('El nombre no puede estar vacío', 'error'); return; }
     try {
-      await updateDoc(doc(db, 'categories', catId, 'topics', topicId), { name, definition, usage, code, order });
+      await updateDoc(doc(db, 'categories', catId, 'topics', topicId), { name, definition, usage, code, codeType, order });
       showToast('✦ Tema actualizado', 'success');
       document.getElementById('form-topic-' + topicId)?.remove();
       loadEditTopics();
@@ -2689,7 +2769,60 @@ sys.ps2 = ''
   // ── Expose globals (after all declarations) ─────
   window.showView          = showView;
   window.saveCategory      = saveCategory;
+
+  // ── Code Type Selector (admin) ───────────────────────────────
+  function setCodeType(type) {
+    document.getElementById('topicCodeType').value = type;
+    document.getElementById('ctype-python').classList.toggle('active', type === 'python');
+    document.getElementById('ctype-shell').classList.toggle('active',  type === 'shell');
+    const ta = document.getElementById('topicCode');
+    ta.placeholder = type === 'shell'
+      ? '$ git init\n$ git add .\n# esto es un comentario'
+      : '# Escribe el código Python aquí...';
+  }
+
+  function setEditCodeType(topicId, type) {
+    document.getElementById('etopic-codeType-' + topicId).value = type;
+    document.getElementById('ectype-python-' + topicId).classList.toggle('active', type === 'python');
+    document.getElementById('ectype-shell-'  + topicId).classList.toggle('active', type === 'shell');
+  }
+
+  // ── Shell renderer — no syntax highlighter interference ──────
+  // Detecta líneas de comando ($), comentarios (#) y output normal.
+  // NO usa innerHTML de spans anidados para evitar el bug del "kw>".
+  function renderShell(code) {
+    if (!code) return '';
+    return code.split('\n').map(rawLine => {
+      // Strip any leftover console prefixes just in case
+      const line = rawLine.replace(/^[ \t]*(kw>|>>>|\$\s*|\.\.\.)[\t ]*/i, function(m) {
+        // Preserve $ prompts — reintroduce them styled
+        return m.trim().startsWith('$') ? '' : '';
+      });
+      const trimmed = rawLine.replace(/^[ \t]*(kw>|>>>|\.\.\.)[ \t]*/i, '');
+      const esc = trimmed
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;');
+
+      if (/^\s*#/.test(trimmed)) {
+        // Comment line
+        return '<div class="shell-line"><span class="shell-comment">' + esc + '</span></div>';
+      } else if (/^\s*\$/.test(trimmed)) {
+        // Command line with $ prefix — show styled prompt
+        const cmd = esc.replace(/^\s*\$\s*/, '');
+        return '<div class="shell-line"><span class="shell-prompt">$</span><span class="shell-cmd"> ' + cmd + '</span></div>';
+      } else if (trimmed === '') {
+        return '<div style="height:0.5em"></div>';
+      } else {
+        // Output / plain line
+        return '<div class="shell-line"><span class="shell-output">' + esc + '</span></div>';
+      }
+    }).join('');
+  }
+
   window.saveTopic         = saveTopic;
+  window.setCodeType       = setCodeType;
+  window.setEditCodeType   = setEditCodeType;
   window.copyCode          = copyCode;
   window.closeModal        = closeModal;
   window.handleAdminClick  = handleAdminClick;
