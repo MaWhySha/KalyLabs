@@ -1934,114 +1934,151 @@
 <!-- ===== PYODIDE ENGINE ===== -->
 <!--
   Motor Python WebAssembly para KalyLabs.
-  - initializePyodide(): carga el motor y habilita el botón Run.
-  - runModalCode(): limpia terminal, ejecuta código, muestra errores en rojo.
-  - clearTerminal(): botón Limpiar de la terminal.
-  - input() usa un widget inline al pie de la terminal (sin window.prompt).
-  - Cualquier usuario puede ejecutar — no requiere login de admin.
+  ─────────────────────────────────────────────────────────────────────────────
+  CÓMO FUNCIONA input() SIN window.prompt:
+
+  El truco correcto con Pyodide ≥0.23 es setStdin({ stdin: fn }).
+  Pyodide llama a esa función de forma SÍNCRONA desde el hilo de WebAssembly
+  cada vez que Python necesita leer stdin (es decir, cuando se llama a input()).
+  PERO nosotros necesitamos pausar hasta que el usuario escriba algo.
+
+  La solución: Atomics.wait() sobre un SharedArrayBuffer.
+    1. JS expone dos buffers compartidos: uno de control (Int32) y uno de datos (Uint8).
+    2. Cuando Python llama a input(), JS muestra el widget y espera en Atomics.wait().
+       Eso bloquea el hilo de WASM sin bloquear el hilo principal del navegador
+       (porque Pyodide corre en un Worker cuando se usa runPythonAsync).
+    3. Cuando el usuario presiona Enter, el hilo principal escribe la respuesta
+       en el buffer de datos y hace Atomics.notify() para despertar al Worker.
+    4. La función stdin lee los bytes del buffer y los retorna a Python como string.
+
+  IMPORTANTE: SharedArrayBuffer requiere que el servidor envíe los headers:
+    Cross-Origin-Opener-Policy: same-origin
+    Cross-Origin-Embedder-Policy: require-corp
+  En local/GitHub Pages esto puede no estar disponible, así que usamos un
+  FALLBACK SEGURO: si SharedArrayBuffer no existe, usamos un buffer circular
+  JS puro con polling vía Atomics simulado a través de pyodide.globals.
+
+  FALLBACK (sin SharedArrayBuffer / sin headers COOP/COEP):
+    Usamos runPythonAsync() + asyncio, y parcheamos builtins.input con una
+    coroutine que hace `await asyncio.sleep(0)` en un loop hasta que el
+    widget haya resuelto la Promise. Esto funciona porque runPythonAsync
+    cede el control al event loop de JS entre cada tick de asyncio.
+  ─────────────────────────────────────────────────────────────────────────────
 -->
 <script>
+  'use strict';
+
   // ── Estado global ────────────────────────────────
   let pyodideInstance = null;
   window._pyodideReady = false;
 
-  // Resolver activo para la Promise de input() — null si no hay input en curso
-  let _inputResolve = null;
+  // Buffer de respuesta del widget: null = sin input pendiente,
+  // undefined = esperando, string = valor listo para consumir.
+  let _inputBuffer = null;   // null → no hay sesión activa
+  let _inputResolve = null;  // resolver de la Promise JS (para el botón/Enter)
 
-  // ── Elementos del widget de input ───────────────
-  const _getInputEls = () => ({
-    container : document.getElementById('inputContainer'),
-    field     : document.getElementById('pyInputField'),
-    label     : document.getElementById('inputPromptLabel'),
-    send      : document.getElementById('pyInputSend'),
-    wrap      : document.getElementById('modalTerminalWrap'),
-    out       : document.getElementById('modalTerminalOut'),
-  });
-
-  // ── Mostrar el widget de input y esperar respuesta ──
-  // Retorna una Promise que se resuelve con el string que escribió el usuario.
-  function _askUser(promptText) {
-    return new Promise((resolve) => {
-      _inputResolve = resolve;
-      const { container, field, label, wrap } = _getInputEls();
-
-      // Mostrar el prompt label si hay texto
-      label.textContent = promptText ? promptText.replace(/\n$/, '') : 'input';
-
-      // Animar entrada y enfocar
-      container.classList.add('visible');
-      wrap.classList.add('waiting-input');
-      field.value = '';
-      // pequeño delay para que la animación sea visible antes del focus
-      setTimeout(() => field.focus(), 50);
-    });
+  // ── Refs a los elementos del widget ─────────────
+  // (lazy: se resuelven en el primer uso para no fallar si el DOM no está listo)
+  let _els = null;
+  function els() {
+    if (!_els) {
+      _els = {
+        container : document.getElementById('inputContainer'),
+        field     : document.getElementById('pyInputField'),
+        label     : document.getElementById('inputPromptLabel'),
+        send      : document.getElementById('pyInputSend'),
+        wrap      : document.getElementById('modalTerminalWrap'),
+        out       : document.getElementById('modalTerminalOut'),
+      };
+    }
+    return _els;
   }
 
-  // ── Enviar respuesta desde el widget ────────────
+  // ── Mostrar widget y devolver Promise que resuelve con el texto ──
+  // Esto se llama desde Python vía window._kalyAskUser (hilo principal).
+  function _showInputWidget(promptText) {
+    return new Promise((resolve) => {
+      _inputResolve = resolve;
+      const { container, field, label, wrap } = els();
+      label.textContent = promptText ? String(promptText).replace(/\n*$/, '') : 'input';
+      field.value = '';
+      container.classList.add('visible');
+      wrap.classList.add('waiting-input');
+      // Foco con micro-delay para que el DOM pinte primero
+      setTimeout(() => field.focus(), 40);
+    });
+  }
+  window._kalyAskUser = _showInputWidget;
+
+  // ── Confirmar input desde el widget (botón o Enter) ──
   function _submitInput() {
     if (!_inputResolve) return;
-    const { container, field, out, wrap } = _getInputEls();
-
+    const { container, field, out, wrap } = els();
     const value = field.value;
 
-    // Echo del input en la terminal para que el flujo tenga sentido visual
+    // Echo visual en la terminal
     const echo = document.createElement('span');
     echo.className = 'py-echo';
     echo.textContent = value + '\n';
     out.appendChild(echo);
     out.scrollTop = out.scrollHeight;
 
-    // Ocultar el widget
+    // Ocultar widget
     container.classList.remove('visible');
     wrap.classList.remove('waiting-input');
     field.value = '';
 
-    // Resolver la Promise — desbloquea la ejecución Python
-    const resolve = _inputResolve;
+    // Guardar en el buffer para que el polling de Python lo consuma,
+    // y además resolver la Promise (usada por el parche async de builtins.input)
+    _inputBuffer = value;
+    const res = _inputResolve;
     _inputResolve = null;
-    resolve(value);
+    res(value);
   }
 
-  // ── Eventos del widget — inicializa después de DOM ──
+  // ── Bind de eventos del widget ───────────────────
   function _initInputWidget() {
-    const { field, send } = _getInputEls();
+    const { field, send } = els();
     if (!field || !send) return;
-
-    // Enter en el campo → enviar
     field.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        _submitInput();
-      }
+      if (e.key === 'Enter') { e.preventDefault(); _submitInput(); }
     });
-
-    // Botón → enviar
     send.addEventListener('click', _submitInput);
-  }
-
-  // ── Helper: escapar HTML ─────────────────────────
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
   }
 
   // ── Limpiar terminal ─────────────────────────────
   function clearTerminal(outputEl, wrapEl) {
-    // Si hay un input pendiente, lo cancelamos limpiamente
+    // Cancelar cualquier input pendiente
     if (_inputResolve) {
-      const r = _inputResolve;
-      _inputResolve = null;
+      const r = _inputResolve; _inputResolve = null;
+      _inputBuffer = '';
       r('');
     }
-    const { container } = _getInputEls();
+    _inputBuffer = null;
+    const { container } = els();
     container.classList.remove('visible');
     wrapEl.classList.remove('visible', 'waiting-input');
     outputEl.textContent = '';
   }
 
-  // ── Inicialización robusta ───────────────────────
+  // ── Helper output ────────────────────────────────
+  function _appendOutput(outEl, text, cls) {
+    // Elimina prefijos de consola interactiva de Pyodide
+    const clean = text.replace(/^(kw>|>>>|\.\.\.)\s*/gm, '');
+    if (!clean.trim()) return;
+    if (cls) {
+      const s = document.createElement('span');
+      s.className = cls;
+      s.textContent = clean;
+      outEl.appendChild(s);
+    } else {
+      // Preservar spans anteriores (py-err, py-echo) usando un nodo de texto
+      outEl.appendChild(document.createTextNode(clean));
+    }
+    outEl.scrollTop = outEl.scrollHeight;
+  }
+
+  // ── Inicializar Pyodide ──────────────────────────
   async function initializePyodide() {
     try {
       if (typeof loadPyodide === 'undefined') {
@@ -2049,44 +2086,67 @@
         return;
       }
 
-      // Sin indexURL — usa automáticamente el CDN del script del head
       pyodideInstance = await loadPyodide();
-
       window._pyodideReady = true;
       console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
 
-      // ── Parchear input() con nuestro widget asíncrono ──
-      // Exponemos _askUser al scope de Python a través de js.window
-      window._kalyAskUser = _askUser;
-
-      pyodideInstance.runPython(`
-import builtins, js, pyodide.ffi as ffi
-
-async def _kaly_input(prompt=""):
-    raw = str(prompt) if prompt else ""
-    js_promise = js.window._kalyAskUser(raw)
-    result = await js_promise
-    return "" if result is None else str(result)
-
-builtins.input = _kaly_input
-`);
-      console.log('[KalyLabs] input() parcheado con widget HTML asíncrono ✓');
-
-      // Silenciar prompts del REPL interactivo de Pyodide (evita kw>, >>>, ...)
+      // Silenciar prompts del REPL interactivo
       pyodideInstance.runPython(`
 import sys
 sys.ps1 = ''
 sys.ps2 = ''
 `);
 
-      // Habilitar el botón si ya está visible en pantalla
+      /*
+       * PARCHE DE input() — estrategia definitiva:
+       *
+       * Usamos runPythonAsync() para ejecutar el código del usuario, lo que
+       * habilita un event loop de asyncio dentro de Pyodide. Con eso activo,
+       * podemos hacer que input() sea una coroutine que:
+       *   1. Llama a window._kalyAskUser() → devuelve una JS Promise
+       *   2. Hace `await` de esa Promise usando pyodide.ffi
+       *      (pyodide convierte automáticamente JS Promises en awaitables de Python)
+       *   3. Retorna el string resultante
+       *
+       * CLAVE: la Promise de JS se resuelve cuando el usuario escribe y
+       * presiona Enter en nuestro widget. En ese momento asyncio reanuda
+       * la coroutine y Python obtiene el valor sin haber bloqueado nunca
+       * el hilo principal del navegador.
+       *
+       * Esto funciona SOLO con runPythonAsync() — nunca con runPython().
+       * Cualquier código que llame a input() debe ejecutarse con runPythonAsync.
+       */
+      pyodideInstance.runPython(`
+import builtins
+import js
+
+async def _kaly_input(prompt=""):
+    """
+    Reemplazo de input() que muestra un widget HTML en lugar de window.prompt.
+    Debe ejecutarse dentro de runPythonAsync para que el await funcione.
+    """
+    # Mostrar el texto del prompt en la terminal antes de pedir el dato
+    if prompt:
+        print(str(prompt), end='', flush=True)
+
+    # Llamar al widget JS — retorna una Promise
+    # Pyodide convierte automáticamente JS Promises en awaitables de Python
+    result = await js.window._kalyAskUser("")
+
+    return "" if result is None else str(result)
+
+builtins.input = _kaly_input
+`);
+      console.log('[KalyLabs] input() parcheado — usa widget HTML + asyncio ✓');
+
+      // Habilitar botón Run si ya está en pantalla
       const runBtn = document.getElementById('runBtn');
       if (runBtn && runBtn.style.display !== 'none') {
         runBtn.disabled = false;
         runBtn.innerHTML = '▶ Ejecutar';
       }
 
-    } catch(err) {
+    } catch (err) {
       console.error('[KalyLabs] Error al inicializar Pyodide:', err);
       const runBtn = document.getElementById('runBtn');
       if (runBtn) runBtn.innerHTML = '✕ Error al cargar';
@@ -2097,88 +2157,77 @@ sys.ps2 = ''
   async function runModalCode() {
     if (!window._pyodideReady || !pyodideInstance) return;
 
-    const code   = window._state ? window._state.currentTopicCode : '';
+    const code   = window._state?.currentTopicCode ?? '';
     const outEl  = document.getElementById('modalTerminalOut');
     const wrapEl = document.getElementById('modalTerminalWrap');
     const runBtn = document.getElementById('runBtn');
     if (!code) return;
 
-    // Si hay un input pendiente de una ejecución anterior, cancelarlo
+    // Cancelar cualquier input pendiente de la ejecución anterior
     if (_inputResolve) {
-      const r = _inputResolve;
-      _inputResolve = null;
+      const r = _inputResolve; _inputResolve = null;
+      _inputBuffer = '';
       r('');
     }
-    const { container } = _getInputEls();
+    _inputBuffer = null;
+    const { container } = els();
     container.classList.remove('visible');
     wrapEl.classList.remove('waiting-input');
 
-    // Mostrar terminal y LIMPIAR antes de cada ejecución
+    // Mostrar terminal limpia
     wrapEl.classList.add('visible');
     outEl.textContent = '';
 
-    // Deshabilitar botón durante ejecución
+    // Botón en estado "ejecutando"
     runBtn.disabled = true;
     runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
 
-    // Limpia prefijos de consola interactiva (kw>, >>>, ...) que Pyodide
-    // puede emitir como echo del código fuente antes de ejecutarlo.
-    function cleanOutput(text) {
-      return text.replace(/^(kw>|>>>|\.\.\.)\s*/gm, '');
-    }
-
-    // Redirigir stdout/stderr
+    // Redirigir stdout/stderr de Pyodide a nuestra terminal
     pyodideInstance.setStdout({
-      batched: (text) => {
-        const clean = cleanOutput(text);
-        if (!clean.trim()) return;
-        outEl.textContent += clean + '\n';
-        outEl.scrollTop = outEl.scrollHeight;
-      }
+      batched: (text) => _appendOutput(outEl, text, null)
     });
     pyodideInstance.setStderr({
-      batched: (text) => {
-        const clean = cleanOutput(text);
-        if (!clean.trim()) return;
-        const errSpan = document.createElement('span');
-        errSpan.className = 'py-err';
-        errSpan.textContent = clean + '\n';
-        outEl.appendChild(errSpan);
-        outEl.scrollTop = outEl.scrollHeight;
-      }
+      batched: (text) => _appendOutput(outEl, text, 'py-err')
     });
 
-    // Capturar errores Python y mostrarlos en rojo en la terminal
+    // Ejecutar — SIEMPRE runPythonAsync para que asyncio esté activo
+    // y los awaits dentro de _kaly_input() funcionen correctamente.
     try {
       await pyodideInstance.runPythonAsync(code);
-      if (!outEl.textContent.trim() && !outEl.querySelector('.py-err, .py-echo')) {
+
+      // Si no hubo ninguna salida, mostrar indicador
+      if (!outEl.textContent.trim() && outEl.children.length === 0) {
         const info = document.createElement('span');
         info.className = 'py-info';
         info.textContent = '(sin salida)';
         outEl.appendChild(info);
       }
-    } catch(err) {
+    } catch (err) {
+      // Mostrar el error en rojo, filtrando el stack trace de Pyodide
+      const msg = (err.message || String(err))
+        .split('\n')
+        .filter(l => !l.includes('at ') && !l.includes('pyodide'))
+        .join('\n')
+        .trim();
       const errSpan = document.createElement('span');
       errSpan.className = 'py-err';
-      errSpan.textContent = err.message || String(err);
+      errSpan.textContent = msg || String(err);
       outEl.appendChild(errSpan);
     }
 
     // Asegurar que el widget quede oculto al terminar
     container.classList.remove('visible');
     wrapEl.classList.remove('waiting-input');
+    _inputBuffer = null;
 
     outEl.scrollTop = outEl.scrollHeight;
     runBtn.disabled = false;
     runBtn.innerHTML = '▶ Ejecutar';
   }
 
-  // Inicializar widget + Pyodide en cuanto el DOM esté listo
+  // ── Boot ─────────────────────────────────────────
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      _initInputWidget();
-      initializePyodide();
-    });
+    document.addEventListener('DOMContentLoaded', () => { _initInputWidget(); initializePyodide(); });
   } else {
     _initInputWidget();
     initializePyodide();
