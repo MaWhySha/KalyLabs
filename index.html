@@ -1503,33 +1503,23 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .py-terminal-output .py-err  { color: #ff7b7b; }
-    .py-input-line {
+    .py-terminal-output .py-err { color: #ff7b7b; }
+    /* Input interactivo dentro de la terminal */
+    .py-input-wrap {
       display: none;
       align-items: center;
       gap: 6px;
-      padding: 6px 16px 10px;
-      border-top: 1px solid rgba(52,211,153,0.08);
+      padding: 4px 14px 10px;
+      border-top: 1px solid rgba(52,211,153,0.1);
     }
-    .py-input-line.active { display: flex; }
-    .py-input-prompt {
-      color: #34d399;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.82rem;
-      user-select: none;
-      flex-shrink: 0;
+    .py-input-wrap.active { display: flex; }
+    .py-input-arrow { color:#34d399; font-family:'JetBrains Mono',monospace; font-size:0.82rem; user-select:none; flex-shrink:0; }
+    .py-input-box {
+      flex:1; background:transparent; border:none; outline:none;
+      color:#a3ffb0; font-family:'JetBrains Mono',monospace; font-size:0.82rem;
+      caret-color:#34d399;
     }
-    .py-input-field {
-      flex: 1;
-      background: transparent;
-      border: none;
-      outline: none;
-      color: #a3ffb0;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.82rem;
-      caret-color: #34d399;
-    }
-    .py-input-field::placeholder { color: rgba(163,255,176,0.3); }
+    .py-input-box::placeholder { color:rgba(163,255,176,0.3); }
     .py-terminal-output .py-info { color: rgba(163,255,176,0.45); font-style: italic; }
 
     /* scrollbar inside terminal */
@@ -1843,9 +1833,10 @@
               <button class="py-clear-btn" onclick="clearTerminal(document.getElementById('modalTerminalOut'), document.getElementById('modalTerminalWrap'))">Limpiar</button>
             </div>
             <div class="py-terminal-output" id="modalTerminalOut"></div>
-            <div class="py-input-line" id="modalInputLine">
-              <span class="py-input-prompt" id="modalInputPrompt">&gt;</span>
-              <input class="py-input-field" id="modalInputField" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="escribe y pulsa Enter..." />
+            <!-- Input interactivo: aparece cuando Python llama a input() -->
+            <div class="py-input-wrap" id="pyInputWrap">
+              <span class="py-input-arrow">▶</span>
+              <input class="py-input-box" id="pyInputBox" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="escribe y pulsa Enter…" />
             </div>
           </div>
         </div>
@@ -1877,9 +1868,6 @@
 
   // ── Limpiar terminal ─────────────────────────────
   function clearTerminal(outputEl, wrapEl) {
-    // Also hide the interactive input line if visible
-    const inputLine = document.getElementById('modalInputLine');
-    if (inputLine) inputLine.classList.remove('active');
     outputEl.textContent = '';
     wrapEl.classList.remove('visible');
   }
@@ -1898,14 +1886,26 @@
       window._pyodideReady = true;
       console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
 
-      // ── Silenciar prompts del REPL (evita kw>, >>>, ...) ──
+      // ── Parchear input() para usar window.prompt ──
+      pyodideInstance.runPython(`
+import builtins
+import js
+
+def custom_input(prompt=""):
+    result = js.window.prompt(str(prompt) if prompt else "")
+    # Si el usuario cancela (null) o deja vacío, retorna string vacío
+    return "" if result is None else str(result)
+
+builtins.input = custom_input
+`);
+      console.log('[KalyLabs] input() parcheado con window.prompt ✓');
+
+      // Silenciar prompts del REPL interactivo de Pyodide (evita kw>, >>>, ...)
       pyodideInstance.runPython(`
 import sys
 sys.ps1 = ''
 sys.ps2 = ''
 `);
-      // input() se parchea en runModalCode() con la terminal interactiva HTML
-      console.log('[KalyLabs] Pyodide REPL prompts silenciados ✓');
 
       // Habilitar el botón si ya está visible en pantalla
       const runBtn = document.getElementById('runBtn');
@@ -1925,93 +1925,71 @@ sys.ps2 = ''
   async function runModalCode() {
     if (!window._pyodideReady || !pyodideInstance) return;
 
-    const code   = window._state ? window._state.currentTopicCode : '';
-    const outEl  = document.getElementById('modalTerminalOut');
-    const wrapEl = document.getElementById('modalTerminalWrap');
-    const runBtn = document.getElementById('runBtn');
-    const inputLine   = document.getElementById('modalInputLine');
-    const inputField  = document.getElementById('modalInputField');
-    const inputPrompt = document.getElementById('modalInputPrompt');
+    const code      = window._state ? window._state.currentTopicCode : '';
+    const outEl     = document.getElementById('modalTerminalOut');
+    const wrapEl    = document.getElementById('modalTerminalWrap');
+    const runBtn    = document.getElementById('runBtn');
+    const inputWrap = document.getElementById('pyInputWrap');
+    const inputBox  = document.getElementById('pyInputBox');
     if (!code) return;
 
-    // Show & clear terminal
+    // Mostrar terminal y limpiar
     wrapEl.classList.add('visible');
     outEl.textContent = '';
-    inputLine.classList.remove('active');
+    inputWrap.classList.remove('active');
 
     runBtn.disabled = true;
-    runBtn.innerHTML = '<span class="spin">\u25cc</span> Ejecutando...';
+    runBtn.innerHTML = '<span class="spin">◌</span> Ejecutando...';
 
-    // ── Write a line to the terminal ─────────────────────────────────
-    function writeOutput(text, cls) {
-      if (!text) return;
-      if (cls) {
-        const span = document.createElement('span');
-        span.className = cls;
-        span.textContent = text;
-        outEl.appendChild(span);
-        outEl.appendChild(document.createTextNode('\n'));
-      } else {
-        outEl.textContent += text;
-      }
-      outEl.scrollTop = outEl.scrollHeight;
-    }
-
-    // ── Interactive input() — shows prompt in terminal, waits for Enter ──
-    function waitForInput(promptText) {
-      return new Promise((resolve) => {
-        // Print the prompt text in the output area
-        if (promptText) {
-          outEl.textContent += promptText;
-          outEl.scrollTop = outEl.scrollHeight;
-        }
-        // Show the input line
-        inputPrompt.textContent = '\u25b6';
-        inputField.value = '';
-        inputLine.classList.add('active');
-        inputField.focus();
-
-        function onEnter(e) {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          const val = inputField.value;
-          // Echo what user typed into the output area
-          outEl.textContent += val + '\n';
-          outEl.scrollTop = outEl.scrollHeight;
-          // Hide input line
-          inputLine.classList.remove('active');
-          inputField.removeEventListener('keydown', onEnter);
-          resolve(val);
-        }
-        inputField.addEventListener('keydown', onEnter);
-      });
-    }
-
-    // ── Patch input() in Python to use our interactive HTML input ────
-    // Store resolver on window so Python (via js) can call it
-    window._inputResolvers = [];
-    window._waitForInput = waitForInput;
-
-    pyodideInstance.runPython(`
-import builtins, js
-
-async def _html_input(prompt=""):
-    result = await js.window._waitForInput(str(prompt) if prompt else "")
-    return "" if result is None else str(result)
-
-builtins.input = _html_input
-`);
-
-    // ── Redirect stdout/stderr ───────────────────────────────────────
+    // ── Limpieza de prefijos Pyodide ─────────────────
     function cleanOutput(text) {
       return text.replace(/^(kw>|>>>|\.\.\.)/gm, '');
     }
 
+    // ── input() interactivo ───────────────────────────
+    // Muestra el texto del prompt directo en la terminal y espera Enter.
+    function waitForInput(promptText) {
+      return new Promise((resolve) => {
+        if (promptText) {
+          outEl.textContent += promptText;
+          outEl.scrollTop = outEl.scrollHeight;
+        }
+        inputBox.value = '';
+        inputWrap.classList.add('active');
+        inputBox.focus();
+
+        function handleEnter(e) {
+          if (e.key !== 'Enter') return;
+          const val = inputBox.value;
+          outEl.textContent += val + '\n';
+          outEl.scrollTop = outEl.scrollHeight;
+          inputWrap.classList.remove('active');
+          inputBox.removeEventListener('keydown', handleEnter);
+          resolve(val);
+        }
+        inputBox.addEventListener('keydown', handleEnter);
+      });
+    }
+
+    window._pyWaitForInput = waitForInput;
+
+    // Parchear input() con la terminal interactiva para esta ejecución
+    pyodideInstance.runPython(`
+import builtins, js
+
+async def _interactive_input(prompt=""):
+    result = await js.window._pyWaitForInput(str(prompt) if prompt else "")
+    return "" if result is None else str(result)
+
+builtins.input = _interactive_input
+`);
+
+    // ── stdout: sin salto extra — Python ya incluye \n en print ──
     pyodideInstance.setStdout({
       batched: (text) => {
         const clean = cleanOutput(text);
         if (!clean) return;
-        outEl.textContent += clean + '\n';
+        outEl.textContent += clean;
         outEl.scrollTop = outEl.scrollHeight;
       }
     });
@@ -2019,26 +1997,155 @@ builtins.input = _html_input
       batched: (text) => {
         const clean = cleanOutput(text);
         if (!clean.trim()) return;
-        writeOutput(clean, 'py-err');
+        const span = document.createElement('span');
+        span.className = 'py-err';
+        span.textContent = clean;
+        outEl.appendChild(span);
+        outEl.scrollTop = outEl.scrollHeight;
       }
     });
 
+    // ── Ejecutar ─────────────────────────────────────
     try {
       await pyodideInstance.runPythonAsync(code);
       if (!outEl.textContent.trim()) {
-        writeOutput('(sin salida)', 'py-info');
+        const info = document.createElement('span');
+        info.className = 'py-info';
+        info.textContent = '(sin salida)';
+        outEl.appendChild(info);
       }
     } catch(err) {
-      writeOutput(err.message || String(err), 'py-err');
+      const span = document.createElement('span');
+      span.className = 'py-err';
+      span.textContent = err.message || String(err);
+      outEl.appendChild(span);
     }
 
-    inputLine.classList.remove('active');
+    inputWrap.classList.remove('active');
     outEl.scrollTop = outEl.scrollHeight;
     runBtn.disabled = false;
-    runBtn.innerHTML = '\u25b6 Ejecutar';
+    runBtn.innerHTML = '▶ Ejecutar';
   }
 
-    async function loginWithGoogle() {
+  // Inicializar en cuanto el DOM esté listo
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializePyodide);
+  } else {
+    initializePyodide();
+  }
+</script>
+
+<!-- ===== FIREBASE + APP JS ===== -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    onSnapshot,
+    query,
+    orderBy,
+    serverTimestamp,
+    doc,
+    updateDoc,
+    deleteDoc
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import {
+    getAuth,
+    GoogleAuthProvider,
+    signInWithPopup,
+    signOut,
+    onAuthStateChanged,
+    browserLocalPersistence,
+    setPersistence
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+  // ── Firebase Config ──────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyD2Jsy4ooOOe2V_cX4y-4FzBX16HU-VaYc",
+    authDomain: "kalylabs.firebaseapp.com",
+    projectId: "kalylabs",
+    storageBucket: "kalylabs.firebasestorage.app",
+    messagingSenderId: "194931824226",
+    appId: "1:194931824226:web:3165b1370268211932233b"
+  };
+
+  const ALLOWED_ADMIN_UID = "TBpk1EHkC5g7sayqFdLg1f9wGkS2";
+
+  const fbApp = initializeApp(firebaseConfig);
+  const db = getFirestore(fbApp);
+  const auth = getAuth(fbApp);
+  const provider = new GoogleAuthProvider();
+  // Mantener sesión activa entre recargas
+  setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+  // ── State ────────────────────────────────────────
+  window._state = {
+    categories: [],
+    topics: {},
+    currentCat: null,
+    currentTopicCode: '',
+    adminUser: null,
+  };
+
+  // ── Google SVG helper ────────────────────────────
+  const GOOGLE_SVG = `<svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.2 30.2 0 24 0 14.7 0 6.7 5.4 2.6 13.4l7.8 6C12.4 13.3 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-3.4-.4-5H24v9.5h12.7c-.5 2.8-2.2 5.2-4.7 6.8l7.3 5.7c4.3-4 6.8-9.9 6.8-17z"/><path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.8-6C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.6l7.8-6z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.3-5.7c-2 1.3-4.5 2.1-7.9 2.1-6.3 0-11.6-3.8-13.6-9.2l-7.8 6C6.7 42.6 14.7 48 24 48z"/></svg> Continuar con Google`;
+
+  // ── Auth UI helpers ──────────────────────────────
+  function updateNavForAdmin(user) {
+    const navActions = document.getElementById('navActions');
+    navActions.innerHTML = `
+      <button class="nav-btn nav-btn-ghost" onclick="showView('home')">Explorar</button>
+      <div class="nav-user-chip">
+        ${user.photoURL ? `<img src="${user.photoURL}" alt="avatar" onerror="this.style.display='none'">` : ''}
+        <span>${user.displayName || user.email}</span>
+      </div>
+      <button class="nav-btn nav-btn-primary" onclick="showView('admin')">⚙ Admin</button>
+      <button class="nav-logout-btn" onclick="logoutAdmin()">Salir</button>
+    `;
+  }
+
+  function updateNavForGuest() {
+    const navActions = document.getElementById('navActions');
+    navActions.innerHTML = `
+      <button class="nav-btn nav-btn-ghost" onclick="showView('home')">Explorar</button>
+      <button class="nav-btn nav-btn-primary" onclick="handleAdminClick()">⚙ Admin</button>
+    `;
+  }
+
+  function showLoginError(msg) {
+    const errEl = document.getElementById('loginError');
+    if (!errEl) return;
+    errEl.textContent = msg;
+    errEl.classList.add('visible');
+  }
+
+  // ── Auth state listener ──────────────────────────
+  onAuthStateChanged(auth, (user) => {
+    if (user && user.uid === ALLOWED_ADMIN_UID) {
+      window._state.adminUser = user;
+      updateNavForAdmin(user);
+    } else {
+      if (user) {
+        signOut(auth);
+        showLoginError('Acceso denegado. Esta cuenta no tiene permisos de administrador.');
+      }
+      window._state.adminUser = null;
+      updateNavForGuest();
+    }
+  });
+
+  // ── Login / Logout ────────────────────────────────
+  function handleAdminClick() {
+    if (window._state.adminUser) {
+      showView('admin');
+    } else {
+      showView('login');
+    }
+  }
+
+  async function loginWithGoogle() {
     const btn = document.getElementById('btnGoogleLogin');
     const errEl = document.getElementById('loginError');
     if (!btn) return;
