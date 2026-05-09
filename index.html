@@ -1837,10 +1837,9 @@
   let pyodideInstance = null;
   window._pyodideReady = false;
 
-  // Acumula todo el texto impreso en la terminal durante una ejecución.
-  // Se usa en el prompt() del navegador para que el usuario vea el contexto
-  // completo (prints previos) antes de escribir su respuesta.
-  let terminalBuffer = "";
+  // Acumula los prints de cada ejecución para mostrarlos en el prompt() nativo.
+  // Se resetea al inicio de cada runModalCode() y se llena desde setStdout.
+  window._pyBuffer = "";
 
   // ── Helper: escapar HTML ─────────────────────────
   function escapeHtml(str) {
@@ -1870,23 +1869,23 @@
       window._pyodideReady = true;
       console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
 
-      // ── Parchear input() para usar window.prompt con contexto ──
-      // Exponemos terminalBuffer al scope de Python via js.window
-      // para que custom_input pueda leerlo en el momento de la llamada.
+      // ── Parchear input() para usar window.prompt ──
       pyodideInstance.runPython(`
 import builtins
 import js
 
 def custom_input(prompt=""):
-    # Construir el mensaje: historial completo + texto del prompt + indicador
-    buffer  = str(js.window._terminalBuffer) if js.window._terminalBuffer else ""
-    label   = str(prompt) if prompt else ""
-    msg     = buffer + ("\n" if buffer else "") + label + "\n\n>> Escribe tu respuesta:"
-    result  = js.window.prompt(msg)
+    # Construir mensaje: prints anteriores + texto del input()
+    prev = str(js.window._pyBuffer) if js.window._pyBuffer else ""
+    label = str(prompt) if prompt else ""
+    msg = (prev + label) if prev else label
+    result = js.window.prompt(msg)
+    # Si el usuario cancela (null) o deja vacío, retorna string vacío
     return "" if result is None else str(result)
 
 builtins.input = custom_input
 `);
+      console.log('[KalyLabs] input() parcheado con window.prompt ✓');
 
       // Silenciar prompts del REPL interactivo de Pyodide (evita kw>, >>>, ...)
       pyodideInstance.runPython(`
@@ -1919,11 +1918,10 @@ sys.ps2 = ''
     const runBtn = document.getElementById('runBtn');
     if (!code) return;
 
-    // Limpiar buffer y terminal antes de cada ejecución
-    terminalBuffer = "";
-    window._terminalBuffer = terminalBuffer;
+    // Mostrar terminal y LIMPIAR antes de cada ejecución
     wrapEl.classList.add('visible');
     outEl.textContent = '';
+    window._pyBuffer = "";  // ← reset del buffer de contexto para el prompt()
 
     // Deshabilitar botón durante ejecución
     runBtn.disabled = true;
@@ -1942,14 +1940,13 @@ sys.ps2 = ''
     };
     window._flush_terminal = flushToTerminal;
 
-    // Redirigir stdout: pintamos en la terminal Y acumulamos en terminalBuffer
-    // para que el prompt() del navegador muestre el contexto completo.
+    // Redirigir stdout/stderr DESPUÉS de cualquier runPython de setup
+    // para que el parche de input() (ya aplicado en initializePyodide) no emita eco aquí.
     pyodideInstance.setStdout({
       batched: (text) => {
         const clean = cleanOutput(text);
         if (!clean.trim()) return;
-        terminalBuffer += clean + '\n';
-        window._terminalBuffer = terminalBuffer;
+        window._pyBuffer += clean + '\n';  // ← acumular para el prompt()
         outEl.textContent += clean + '\n';
         outEl.scrollTop = outEl.scrollHeight;
       }
@@ -1958,8 +1955,6 @@ sys.ps2 = ''
       batched: (text) => {
         const clean = cleanOutput(text);
         if (!clean.trim()) return;
-        terminalBuffer += clean + '\n';
-        window._terminalBuffer = terminalBuffer;
         outEl.textContent += clean + '\n';
         outEl.scrollTop = outEl.scrollHeight;
       }
