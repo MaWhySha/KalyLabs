@@ -1866,18 +1866,13 @@
       console.log('[KalyLabs] Pyodide v0.25.0 listo ✓');
 
       // ── Parchear input() para usar window.prompt ──
-      // El popup incluye el output reciente de la terminal para que
-      // el usuario vea las opciones/contexto sin tener que cambiar de ventana.
       pyodideInstance.runPython(`
 import builtins
 import js
 
 def custom_input(prompt=""):
-    # Leer las últimas líneas del output de la terminal (ventana 1)
-    # para mostrarlas como contexto en el popup (ventana 2)
-    terminal_context = js.window._getTerminalContext()
-    full_prompt = (terminal_context + "\n" + str(prompt)) if terminal_context else str(prompt)
-    result = js.window.prompt(full_prompt if full_prompt else "")
+    result = js.window.prompt(str(prompt) if prompt else "")
+    # Si el usuario cancela (null) o deja vacío, retorna string vacío
     return "" if result is None else str(result)
 
 builtins.input = custom_input
@@ -1936,18 +1931,28 @@ sys.ps2 = ''
     };
     window._flush_terminal = flushToTerminal;
 
-    // Exponer el contenido de la terminal para que custom_input
-    // pueda incluirlo como contexto en el window.prompt
+    // Exponer contexto de terminal para el prompt
     window._getTerminalContext = function() {
       const text = outEl.textContent || '';
-      // Tomar las últimas 20 líneas (suficiente para ver menús/opciones)
       const lines = text.split('\n').filter(l => l.trim() !== '');
-      const last = lines.slice(-20).join('\n');
-      return last;
+      return lines.slice(-20).join('\n');
     };
 
-    // Redirigir stdout/stderr DESPUÉS de cualquier runPython de setup
-    // para que el parche de input() (ya aplicado en initializePyodide) no emita eco aquí.
+    // Redefinir custom_input aquí donde _getTerminalContext ya existe.
+    // Así el popup muestra las opciones/prints previos junto a la pregunta.
+    pyodideInstance.runPython(`
+import builtins, js
+
+def custom_input(prompt=""):
+    ctx = js.window._getTerminalContext()
+    full = (ctx + "\n\n" + str(prompt)) if ctx else str(prompt)
+    result = js.window.prompt(full)
+    return "" if result is None else str(result)
+
+builtins.input = custom_input
+`);
+
+    // Redirigir stdout/stderr
     pyodideInstance.setStdout({
       batched: (text) => {
         const clean = cleanOutput(text);
