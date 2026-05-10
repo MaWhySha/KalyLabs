@@ -1310,6 +1310,54 @@
 
     .edit-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
+    /* ── Drag & drop reorder (solo admin, panel de edición de temas) ── */
+    .drag-handle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      cursor: grab;
+      color: var(--text3);
+      font-size: 1rem;
+      flex-shrink: 0;
+      transition: color 0.2s, background 0.2s;
+      touch-action: none; /* necesario para pointer events en móvil */
+      user-select: none;
+    }
+    .drag-handle:hover  { color: var(--accent2); background: rgba(124,107,255,0.1); }
+    .drag-handle:active { cursor: grabbing; }
+
+    /* Tarjeta siendo arrastrada */
+    .edit-item.dragging {
+      opacity: 0.4;
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 2px rgba(124,107,255,0.3);
+    }
+
+    /* Zona de drop activa — línea indicadora antes de la tarjeta */
+    .edit-item.drag-over-above {
+      border-top: 2px solid var(--accent2);
+      margin-top: -1px;
+    }
+    .edit-item.drag-over-below {
+      border-bottom: 2px solid var(--accent2);
+      margin-bottom: -1px;
+    }
+
+    /* Hint de drag visible en el panel de edición de temas */
+    .drag-hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.73rem;
+      color: var(--text3);
+      margin-bottom: 10px;
+      padding: 0 2px;
+    }
+    .drag-hint-icon { font-size: 0.85rem; }
+
     .btn-edit {
       padding: 6px 12px;
       border-radius: 8px;
@@ -1708,10 +1756,9 @@
               <label class="form-label">Nombre del concepto</label>
               <input type="text" class="form-input" id="topicName" placeholder="ej: while, if, for, función..." />
             </div>
-            <div class="form-group" style="max-width:130px">
-              <label class="form-label">Posición / Orden</label>
-              <input type="number" class="form-input" id="topicOrder" placeholder="Orden (ej: 10)" min="0" step="1" />
-            </div>
+            <!-- topicOrder ya no se llena manualmente: saveTopic() calcula
+                 automáticamente el siguiente número libre en la categoría -->
+            <input type="hidden" id="topicOrder" value="" />
           </div>
           <div class="form-group">
             <label class="form-label">Definición</label>
@@ -2003,7 +2050,8 @@ sys.ps2 = ''
     serverTimestamp,
     doc,
     updateDoc,
-    deleteDoc
+    deleteDoc,
+    writeBatch
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import {
     getAuth,
@@ -2484,25 +2532,37 @@ sys.ps2 = ''
     const usage      = document.getElementById('topicUse').value.trim();
     const code       = document.getElementById('topicCode').value.trim();
     const codeType   = document.getElementById('topicCodeType').value || 'python';
-    const order      = parseInt(document.getElementById('topicOrder').value) || 999;
     if (!catId) { showToast('Selecciona una categoría', 'error'); return; }
     if (!name)  { showToast('Escribe el nombre del concepto', 'error'); return; }
+
+    // ── Calcular orden automático: máximo actual + 1 ──────────────────────
+    // Así el nuevo tema siempre queda al final de la lista sin que el admin
+    // tenga que escribir un número. Luego puede reordenarlo con drag & drop.
+    let autoOrder = 1;
+    try {
+      const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
+      const existing = snap.docs.map(d => d.data());
+      if (existing.length) {
+        const maxOrder = Math.max(...existing.map(t => t.order ?? t.orden ?? 0));
+        autoOrder = maxOrder + 1;
+      }
+    } catch(e) { /* si falla la consulta usamos 1 */ }
+
     const btn = document.getElementById('btnSaveTopic');
     btn.textContent = 'Guardando en Firebase...';
     btn.classList.add('loading');
     try {
       await addDoc(collection(db, 'categories', catId, 'topics'), {
-        name, definition, usage, code, codeType, order,
+        name, definition, usage, code, codeType, order: autoOrder,
         createdAt: serverTimestamp()
       });
-      showToast('✦ Tema guardado: ' + name, 'success');
+      showToast('✦ Tema guardado al final (#' + autoOrder + '): ' + name, 'success');
       document.getElementById('topicName').value     = '';
       document.getElementById('topicDef').value      = '';
       document.getElementById('topicUse').value      = '';
       document.getElementById('topicCode').value     = '';
-      document.getElementById('topicOrder').value    = '';
       document.getElementById('topicCategory').value = '';
-      setCodeType('python'); // reset selector
+      setCodeType('python');
     } catch(e) {
       showToast('Error: ' + e.message, 'error');
     }
@@ -2671,10 +2731,17 @@ sys.ps2 = ''
       list.innerHTML = '<div class="edit-empty">Sin temas en esta categoría</div>';
       return;
     }
-    list.innerHTML = topics.map(t => `
-      <div class="edit-item" id="edit-topic-item-${t.id}">
+
+    // Hint de drag — solo visible si hay más de un tema
+    const hintHtml = topics.length > 1
+      ? `<div class="drag-hint"><span class="drag-hint-icon">⠿</span> Arrastra las tarjetas para reordenar — los números se actualizan solos</div>`
+      : '';
+
+    list.innerHTML = hintHtml + topics.map(t => `
+      <div class="edit-item" id="edit-topic-item-${t.id}" data-topic-id="${t.id}">
+        <span class="drag-handle" title="Arrastra para reordenar">⠿</span>
         <div class="edit-item-info" style="display:flex;align-items:center;gap:10px;min-width:0">
-          <span class="orden-badge" title="Posición">
+          <span class="orden-badge" id="orden-badge-${t.id}" title="Posición">
             ${(t.order !== undefined || t.orden !== undefined)
               ? (t.order ?? t.orden)
               : '?'}
@@ -2695,6 +2762,149 @@ sys.ps2 = ''
         </div>
       </div>
     `).join('');
+
+    // ── Drag & Drop Engine ────────────────────────────────────────────────
+    // Funciona con mouse (dragstart/dragover) Y con touch (pointermove).
+    // El estado vive en un closure para no contaminar el scope global.
+    _initTopicDragDrop(list, catId);
+  }
+
+  // ── Drag & Drop: inicializa listeners en la lista de temas del admin ──
+  function _initTopicDragDrop(list, catId) {
+    let dragEl    = null;  // elemento que se está arrastrando
+    let pointerStartY = 0;
+    let isDragging    = false;
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    // Devuelve todos los .edit-item hijos directos (no los .edit-form)
+    function getItems() {
+      return [...list.querySelectorAll('.edit-item[data-topic-id]')];
+    }
+
+    // Limpia clases de indicador visual en todos los items
+    function clearDropIndicators() {
+      getItems().forEach(el => {
+        el.classList.remove('drag-over-above', 'drag-over-below');
+      });
+    }
+
+    // Determina sobre cuál item estamos y si estamos en su mitad superior/inferior
+    function getDropTarget(y) {
+      for (const el of getItems()) {
+        if (el === dragEl) continue;
+        const rect = el.getBoundingClientRect();
+        if (y >= rect.top && y <= rect.bottom) {
+          const mid = rect.top + rect.height / 2;
+          return { el, above: y < mid };
+        }
+      }
+      return null;
+    }
+
+    // Reorganiza el DOM según el drop y guarda en Firebase
+    function commitDrop(target) {
+      if (!target || !dragEl) return;
+      clearDropIndicators();
+      if (target.above) {
+        list.insertBefore(dragEl, target.el);
+      } else {
+        target.el.insertAdjacentElement('afterend', dragEl);
+      }
+      // Reasignar números de orden (1-based, consecutivos) y guardar
+      _renumberAndSave(list, catId);
+    }
+
+    // ── Pointer Events (unifica mouse + touch) ───────────────────────────
+
+    list.addEventListener('pointerdown', (e) => {
+      const handle = e.target.closest('.drag-handle');
+      if (!handle) return;
+      dragEl = handle.closest('.edit-item[data-topic-id]');
+      if (!dragEl) return;
+
+      // Cerrar cualquier edit-form abierto antes de arrastrar
+      list.querySelectorAll('.edit-form').forEach(f => f.remove());
+
+      isDragging    = false;
+      pointerStartY = e.clientY;
+      handle.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    }, { passive: false });
+
+    list.addEventListener('pointermove', (e) => {
+      if (!dragEl) return;
+      if (!isDragging && Math.abs(e.clientY - pointerStartY) > 6) {
+        isDragging = true;
+        dragEl.classList.add('dragging');
+      }
+      if (!isDragging) return;
+      e.preventDefault();
+      clearDropIndicators();
+      const target = getDropTarget(e.clientY);
+      if (target) {
+        target.el.classList.add(target.above ? 'drag-over-above' : 'drag-over-below');
+      }
+    }, { passive: false });
+
+    list.addEventListener('pointerup', (e) => {
+      if (!dragEl) return;
+      dragEl.classList.remove('dragging');
+      if (isDragging) {
+        const target = getDropTarget(e.clientY);
+        commitDrop(target);
+      }
+      clearDropIndicators();
+      dragEl    = null;
+      isDragging = false;
+    });
+
+    list.addEventListener('pointercancel', () => {
+      if (dragEl) dragEl.classList.remove('dragging');
+      clearDropIndicators();
+      dragEl     = null;
+      isDragging = false;
+    });
+  }
+
+  // ── Renumera los badges de orden (1, 2, 3…) y hace batch write a Firebase ──
+  async function _renumberAndSave(list, catId) {
+    const items = [...list.querySelectorAll('.edit-item[data-topic-id]')];
+    // Actualizar badges visualmente de inmediato (UX optimista)
+    items.forEach((el, i) => {
+      const badge = el.querySelector('.orden-badge');
+      if (badge) badge.textContent = i + 1;
+    });
+    // Actualizar estado en memoria
+    const topics = window._state.topics[catId] || [];
+    const reordered = items.map((el, i) => {
+      const id = el.dataset.topicId;
+      const t  = topics.find(x => x.id === id);
+      return t ? { ...t, order: i + 1 } : null;
+    }).filter(Boolean);
+    window._state.topics[catId] = reordered;
+
+    // Batch write: un solo commit con todos los cambios de orden
+    try {
+      const batch = writeBatch(db);
+      reordered.forEach(t => {
+        batch.update(doc(db, 'categories', catId, 'topics', t.id), { order: t.order });
+      });
+      await batch.commit();
+      showToast('✦ Orden guardado', 'success');
+    } catch(e) {
+      // Fallback: actualizar doc a doc si el batch falla
+      try {
+        await Promise.all(
+          reordered.map(t =>
+            updateDoc(doc(db, 'categories', catId, 'topics', t.id), { order: t.order })
+          )
+        );
+        showToast('✦ Orden guardado', 'success');
+      } catch(e2) {
+        showToast('Error al guardar orden: ' + e2.message, 'error');
+      }
+    }
   }
 
   // ── Show inline edit form for Topic ──────────────
