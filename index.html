@@ -2411,8 +2411,7 @@ sys.ps2 = ''
 
     document.getElementById('topicModal').classList.add('open');
     document.body.style.overflow = 'hidden';
-    // Empujar estado al historial para que el botón físico "atrás" del móvil
-    // dispare popstate en lugar de salir de la web.
+    // Entrada en el historial para que el botón físico "atrás" cierre el modal.
     history.pushState({ modal: true }, '');
   };
 
@@ -2422,16 +2421,6 @@ sys.ps2 = ''
       document.body.style.overflow = '';
     }
   }
-
-  // Botón físico "atrás" del móvil: cierra el modal si está abierto.
-  // Si el modal ya estaba cerrado, deja que el navegador navegue normalmente.
-  window.addEventListener('popstate', () => {
-    const modal = document.getElementById('topicModal');
-    if (modal.classList.contains('open')) {
-      modal.classList.remove('open');
-      document.body.style.overflow = '';
-    }
-  });
 
   // ── Copy Code ────────────────────────────────────
   function copyCode() {
@@ -2461,7 +2450,32 @@ sys.ps2 = ''
     }
     document.body.style.overflow = '';
     document.getElementById('topicModal').classList.remove('open');
+    // 'home' es la raíz — no empuja entrada para no romper el flujo de salida.
+    // Cualquier vista secundaria (category, login, admin…) sí empuja.
+    if (name !== 'home') {
+      history.pushState({ view: name }, '');
+    }
   }
+
+  // ── Botón físico "atrás" del móvil ───────────────
+  // Prioridad 1: cerrar modal si está abierto.
+  // Prioridad 2: volver a home si estamos en vista secundaria.
+  window.addEventListener('popstate', () => {
+    const modal = document.getElementById('topicModal');
+    if (modal.classList.contains('open')) {
+      modal.classList.remove('open');
+      document.body.style.overflow = '';
+      return;
+    }
+    const activeView = document.querySelector('.view.active');
+    if (activeView && activeView.id !== 'view-home') {
+      // Activar home directamente sin pushState para no acumular entradas
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      const home = document.getElementById('view-home');
+      if (home) { home.classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+      document.body.style.overflow = '';
+    }
+  });
 
   // ── Save Category ────────────────────────────────
   async function saveCategory() {
