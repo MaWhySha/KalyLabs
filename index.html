@@ -2412,7 +2412,7 @@ sys.ps2 = ''
     document.getElementById('topicModal').classList.add('open');
     document.body.style.overflow = 'hidden';
     // Entrada en el historial para que el botón físico "atrás" cierre el modal.
-    history.pushState({ modal: true }, '');
+    history.pushState({ view: 'modal' }, '');
   };
 
   function closeModal(e) {
@@ -2450,26 +2450,30 @@ sys.ps2 = ''
     }
     document.body.style.overflow = '';
     document.getElementById('topicModal').classList.remove('open');
-    // 'home' es la raíz — no empuja entrada para no romper el flujo de salida.
-    // Cualquier vista secundaria (category, login, admin…) sí empuja.
-    if (name !== 'home') {
+    // home es la raíz: replaceState para no empujar entradas hacia atrás.
+    // Vistas secundarias (category, login, admin): pushState para que el
+    // botón físico "atrás" tenga adónde retroceder.
+    if (name === 'home') {
+      history.replaceState({ view: 'home' }, '');
+    } else {
       history.pushState({ view: name }, '');
     }
   }
 
   // ── Botón físico "atrás" del móvil ───────────────
-  // Prioridad 1: cerrar modal si está abierto.
-  // Prioridad 2: volver a home si estamos en vista secundaria.
-  window.addEventListener('popstate', () => {
+  // Prioridad 1: modal abierto → cerrarlo (usuario queda en la categoría).
+  // Prioridad 2: vista secundaria → volver a home.
+  window.addEventListener('popstate', (e) => {
     const modal = document.getElementById('topicModal');
     if (modal.classList.contains('open')) {
       modal.classList.remove('open');
       document.body.style.overflow = '';
       return;
     }
-    const activeView = document.querySelector('.view.active');
-    if (activeView && activeView.id !== 'view-home') {
-      // Activar home directamente sin pushState para no acumular entradas
+    // e.state.view indica el estado al que el navegador quiere ir.
+    // Si es 'home' (o no hay estado) activamos la vista home.
+    const dest = e.state?.view ?? 'home';
+    if (dest === 'home') {
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       const home = document.getElementById('view-home');
       if (home) { home.classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
@@ -2477,7 +2481,9 @@ sys.ps2 = ''
     }
   });
 
-  // ── Save Category ────────────────────────────────
+  // Ancla el estado inicial — reemplaza la entrada vacía que el navegador
+  // crea al cargar la página. Así popstate siempre tiene state.view definido.
+  history.replaceState({ view: 'home' }, '');
   async function saveCategory() {
     if (!window._state.adminUser) { showToast('No autorizado', 'error'); return; }
     const name = document.getElementById('newCatName').value.trim();
