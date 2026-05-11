@@ -2411,6 +2411,9 @@ sys.ps2 = ''
 
     document.getElementById('topicModal').classList.add('open');
     document.body.style.overflow = 'hidden';
+    // Empujar estado al historial para que el botón físico "atrás" del móvil
+    // dispare popstate en lugar de salir de la web.
+    history.pushState({ modal: true }, '');
   };
 
   function closeModal(e) {
@@ -2419,6 +2422,16 @@ sys.ps2 = ''
       document.body.style.overflow = '';
     }
   }
+
+  // Botón físico "atrás" del móvil: cierra el modal si está abierto.
+  // Si el modal ya estaba cerrado, deja que el navegador navegue normalmente.
+  window.addEventListener('popstate', () => {
+    const modal = document.getElementById('topicModal');
+    if (modal.classList.contains('open')) {
+      modal.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+  });
 
   // ── Copy Code ────────────────────────────────────
   function copyCode() {
