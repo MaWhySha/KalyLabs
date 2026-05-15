@@ -2456,7 +2456,7 @@ sys.ps2 = ''
     sortBtnWrap.style.display = 'none'; // ocultar cuando hay módulos
     window._state.topicsReversed = false;
 
-    // Renderizar: módulos primero, luego temas sueltos
+    // Renderizar: módulos primero, luego temas sueltos siempre
     let html = '';
 
     modules.forEach(mod => {
@@ -2486,11 +2486,17 @@ sys.ps2 = ''
         </div>`;
     });
 
+    // Temas sueltos: siempre se renderizan si existen.
+    // Si hay módulos, se añade un encabezado "Otros temas" para diferenciarlos.
     if (looseTopics.length) {
-      const looseHeader = modules.length
-        ? `<div class="module-header" style="margin-top:${modules.length?'8px':'0'}"><span class="module-icon">📄</span><span class="module-title">Temas sueltos</span><span class="module-count">${looseTopics.length}</span></div>`
-        : '';
-      html += looseHeader + looseTopics.map((t, i) => `
+      if (modules.length) {
+        html += `<div class="module-header" style="margin-top:16px">
+          <span class="module-icon">📄</span>
+          <span class="module-title">Otros temas</span>
+          <span class="module-count">${looseTopics.length}</span>
+        </div>`;
+      }
+      html += looseTopics.map((t, i) => `
         <div class="topic-item" style="animation-delay:${i * 0.04}s"
              onclick="openTopic('${catId}','${t.id}')">
           <div class="topic-item-left">
@@ -2519,8 +2525,19 @@ sys.ps2 = ''
   // ── Open Topic Modal ─────────────────────────────
   window.openTopic = async function(catId, topicId) {
     const cat = window._state.categories.find(c => c.id === catId);
-    const topics = window._state.topics[catId] || [];
-    const topic = topics.find(t => t.id === topicId);
+    let topics = window._state.topics[catId] || [];
+    let topic = topics.find(t => t.id === topicId);
+
+    // Fallback: si el tema no está en memoria (p.ej. recarga parcial),
+    // lo buscamos directamente en Firestore antes de rendirse.
+    if (!topic) {
+      try {
+        const snap = await getDocs(collection(db, 'categories', catId, 'topics'));
+        topics = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        window._state.topics[catId] = topics;
+        topic = topics.find(t => t.id === topicId);
+      } catch(e) {}
+    }
     if (!topic) return;
 
     document.getElementById('modalBreadCat').textContent = cat ? cat.name : '';
