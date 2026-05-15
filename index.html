@@ -2458,9 +2458,11 @@ sys.ps2 = ''
     const totalTopics = looseTopics.length + totalModuleTopics;
     document.getElementById('topicCount').textContent = totalTopics + (totalTopics === 1 ? ' tema' : ' temas');
 
-    // Botón invertir solo para temas sueltos (sin módulo)
+    // Botón invertir: visible si hay más de 1 tema suelto
     const sortBtnWrap = document.getElementById('sortBtnWrap');
-    sortBtnWrap.style.display = 'none'; // ocultar cuando hay módulos
+    const sortBtn     = document.getElementById('sortToggleBtn');
+    sortBtnWrap.style.display = looseTopics.length > 1 ? 'block' : 'none';
+    sortBtn.textContent = '↕ Primero los nuevos';
     window._state.topicsReversed = false;
 
     // Renderizar: módulos primero, luego temas sueltos siempre
