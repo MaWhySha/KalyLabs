@@ -1483,34 +1483,63 @@
       transform: translate(2px,-2px);
     }
 
-    /* Encabezado separador "Otros temas" cuando hay módulos y temas sueltos */
-    .loose-topics-header {
+    /* "Otros temas" card — ancho completo, mismo estilo que module-card */
+    .loose-topics-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: clamp(18px, 4vw, 26px);
+      cursor: pointer;
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
-      padding: 10px 14px;
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: 10px;
+      gap: 16px;
+      margin-top: 4px;
+      animation: cardAppear 0.5s cubic-bezier(0.4,0,0.2,1) both;
     }
-    .loose-topics-header-icon { font-size: 1rem; }
-    .loose-topics-header-title {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 0.9rem;
-      color: var(--text2);
+
+    .loose-topics-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(124,107,255,0.06), transparent);
+      opacity: 0;
+      transition: var(--transition);
+    }
+
+    .loose-topics-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-3px);
+      box-shadow: var(--shadow2), var(--glow);
+    }
+
+    .loose-topics-card:hover::before { opacity: 1; }
+
+    .loose-topics-card .module-card-icon {
+      margin-bottom: 0;
+      flex-shrink: 0;
+    }
+
+    .loose-topics-card .module-card-name {
       flex: 1;
+      margin-bottom: 0;
     }
-    .loose-topics-header-count {
-      font-size: 0.72rem;
+
+    .loose-topics-card .module-card-count {
+      margin-right: 8px;
+    }
+
+    .loose-topics-card .module-card-arrow {
+      position: static;
       color: var(--text3);
-      font-family: 'JetBrains Mono', monospace;
-      background: rgba(124,107,255,0.08);
-      border: 1px solid rgba(124,107,255,0.15);
-      border-radius: 6px;
-      padding: 2px 7px;
+      font-size: 1.1rem;
+      transition: var(--transition);
+      flex-shrink: 0;
     }
+
+    .loose-topics-card:hover .module-card-arrow { color: var(--accent2); }
 
     /* Badge de módulo en el panel de edición de temas */
     .module-badge {
@@ -1742,7 +1771,7 @@
   <!-- ===== CATEGORY VIEW ===== -->
   <div class="view" id="view-category">
     <div class="section" style="padding-top:40px;">
-      <button class="back-btn" onclick="showView('home')">← Volver</button>
+      <button class="back-btn" onclick="history.back()">← Volver</button>
       <div class="cat-header" id="catHeader"></div>
       <div class="section-header">
         <div class="section-title">Temas</div>
@@ -2425,18 +2454,36 @@ sys.ps2 = ''
       </div>
     `).join('');
 
+    // Inicializar mapa de totales por cat para sumar incrementalmente
+    window._state.topicTotals = {};
+
     cats.forEach(async cat => {
-      const snap = await getDocs(collection(db, 'categories', cat.id, 'topics'));
+      // Temas sueltos
+      const looseSnap = await getDocs(collection(db, 'categories', cat.id, 'topics'));
+      window._state.topics[cat.id] = looseSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let total = looseSnap.size;
+
+      // Temas en módulos
+      try {
+        const modSnap = await getDocs(collection(db, 'categories', cat.id, 'modules'));
+        await Promise.all(modSnap.docs.map(async mDoc => {
+          try {
+            const tSnap = await getDocs(collection(db, 'categories', cat.id, 'modules', mDoc.id, 'topics'));
+            total += tSnap.size;
+          } catch(e) {}
+        }));
+      } catch(e) {}
+
+      window._state.topicTotals[cat.id] = total;
       const el = document.getElementById('count-' + cat.id);
-      if (el) el.textContent = snap.size + (snap.size === 1 ? ' tema' : ' temas');
-      window._state.topics[cat.id] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (el) el.textContent = total + (total === 1 ? ' tema' : ' temas');
       updateTotalTopics();
     });
   }
 
   function updateTotalTopics() {
-    let total = 0;
-    Object.values(window._state.topics).forEach(arr => total += arr.length);
+    const totals = window._state.topicTotals || {};
+    const total = Object.values(totals).reduce((s, n) => s + n, 0);
     document.getElementById('statTopics').textContent = total;
   }
 
@@ -2473,25 +2520,29 @@ sys.ps2 = ''
     const catId = window._state.currentCat?.id;
     if (!catId) return;
     window._state.topicsReversed = !window._state.topicsReversed;
-    const btn = document.getElementById('sortToggleBtn');
-    btn.textContent = window._state.topicsReversed ? '↕ Orden original' : '↕ Primero los nuevos';
+    document.getElementById('sortToggleBtn').textContent =
+      window._state.topicsReversed ? '↕ Orden original' : '↕ Primero los nuevos';
 
-    // Invertir temas sueltos
     if (window._state.topics[catId]) {
       window._state.topics[catId] = [...window._state.topics[catId]].reverse();
     }
-    // Invertir orden de módulos
     if (window._state.modules) {
       window._state.modules = [...window._state.modules].reverse();
     }
 
-    // Re-renderizar con module-cards
-    const topicsList = document.getElementById('topicsList');
-    const modules = window._state.modules || [];
-    const moduleTopics = window._state.moduleTopics || {};
-    const looseTopics = window._state.topics[catId] || [];
+    _renderCategoryContent(
+      catId,
+      window._state.modules || [],
+      window._state.moduleTopics || {},
+      window._state.topics[catId] || []
+    );
+  }
 
+  // ── Helper: renderiza el contenido de la categoría ──
+  function _renderCategoryContent(catId, modules, moduleTopics, looseTopics) {
+    const topicsList = document.getElementById('topicsList');
     let html = '';
+
     if (modules.length) {
       html += `<div class="modules-grid">`;
       modules.forEach((mod, i) => {
@@ -2510,31 +2561,39 @@ sys.ps2 = ''
 
     if (looseTopics.length) {
       if (modules.length) {
-        html += `<div class="loose-topics-header">
-          <span class="loose-topics-header-icon">📄</span>
-          <span class="loose-topics-header-title">Otros temas</span>
-          <span class="loose-topics-header-count">${looseTopics.length}</span>
-        </div>`;
-      }
-      html += looseTopics.map((t, i) => `
-        <div class="topic-item" style="animation-delay:${i * 0.04}s"
-             onclick="openTopic('${catId}','${t.id}')">
-          <div class="topic-item-left">
-            <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
-            <div style="min-width:0">
-              <div class="topic-name">${t.name}</div>
-              <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+        html += `
+          <div class="loose-topics-card" onclick="openLooseTopics('${catId}')">
+            <div class="module-card-icon">📄</div>
+            <div class="module-card-name">Otros temas</div>
+            <div class="module-card-count">${looseTopics.length} tema${looseTopics.length !== 1 ? 's' : ''}</div>
+            <div class="module-card-arrow">↗</div>
+          </div>`;
+      } else {
+        // Sin módulos: mostrar temas directamente como lista
+        html += looseTopics.map((t, i) => `
+          <div class="topic-item" style="animation-delay:${i * 0.04}s"
+               onclick="openTopic('${catId}','${t.id}')">
+            <div class="topic-item-left">
+              <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+              <div style="min-width:0">
+                <div class="topic-name">${t.name}</div>
+                <div class="topic-preview">${(t.definition||'').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+              </div>
             </div>
-          </div>
-          <div class="topic-chevron">→</div>
-        </div>
-      `).join('');
+            <div class="topic-chevron">→</div>
+          </div>`).join('');
+      }
     }
 
-    topicsList.innerHTML = html || `<div class="empty-state">
-      <div class="empty-icon">📘</div>
-      <div class="empty-text">Sin temas en esta categoría</div>
-    </div>`;
+    if (!html) {
+      html = `<div class="empty-state">
+        <div class="empty-icon">📘</div>
+        <div class="empty-text">Sin temas en esta categoría</div>
+        <div class="empty-sub">Agrega el primero desde el panel admin</div>
+      </div>`;
+    }
+
+    topicsList.innerHTML = html;
   }
 
   window.openCategory = async function(catId) {
@@ -2553,31 +2612,23 @@ sys.ps2 = ''
 
     const topicsList = document.getElementById('topicsList');
     topicsList.innerHTML = '<div style="color:var(--text3);padding:24px;text-align:center">Cargando...</div>';
-    showView('category');
+    _activateView('category');
+    history.pushState({ view: 'category', catId }, '');
 
-    // Cargar temas sueltos — consulta principal, nunca debe fallar silenciosamente
     let allTopics = [];
     try {
       const topSnap = await getDocs(collection(db, 'categories', catId, 'topics'));
       allTopics = topSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch(err) {
-      console.error('[KalyLabs] Error cargando temas:', err);
-    }
+    } catch(err) { console.error('[KalyLabs] Error cargando temas:', err); }
 
-    // Cargar módulos — consulta separada para que un fallo aquí no afecte allTopics
     let modules = [];
     try {
       const modSnap = await getDocs(collection(db, 'categories', catId, 'modules'));
       modules = modSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch(err) {
-      // La colección modules puede no existir aún — es normal, no es un error real
-      modules = [];
-    }
+    } catch(err) { modules = []; }
 
-    // Ordenar módulos por order
     modules = modules.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
-    // Para cada módulo, cargar sus temas desde la subcolección
     const moduleTopics = {};
     await Promise.all(modules.map(async mod => {
       try {
@@ -2588,80 +2639,22 @@ sys.ps2 = ''
       } catch(e) { moduleTopics[mod.id] = []; }
     }));
 
-    // Temas sueltos: todos los de categories/{catId}/topics, ordenados
-    // Soporta campo 'order' (nuevo), 'orden' (legado), o ninguno (van al final)
     const looseTopics = allTopics.sort((a, b) => (a.order ?? a.orden ?? 999) - (b.order ?? b.orden ?? 999));
 
-    // Guardar en estado para openTopic
-    window._state.topics[catId] = looseTopics;
-    window._state.modules        = modules;
-    window._state.moduleTopics   = moduleTopics;
+    window._state.topics[catId]   = looseTopics;
+    window._state.modules          = modules;
+    window._state.moduleTopics     = moduleTopics;
+    window._state.currentLooseCat = catId;
 
-    // Contar total de temas
     const totalModuleTopics = modules.reduce((s, m) => s + (moduleTopics[m.id]?.length || 0), 0);
     const totalTopics = looseTopics.length + totalModuleTopics;
     document.getElementById('topicCount').textContent = totalTopics + (totalTopics === 1 ? ' tema' : ' temas');
 
-    // Botón invertir: visible si hay más de 1 tema suelto O hay módulos
     const sortBtnWrap = document.getElementById('sortBtnWrap');
-    const sortBtn     = document.getElementById('sortToggleBtn');
     sortBtnWrap.style.display = (looseTopics.length > 1 || modules.length > 1) ? 'block' : 'none';
-    sortBtn.textContent = '↕ Primero los nuevos';
-    window._state.topicsReversed = false;
+    document.getElementById('sortToggleBtn').textContent = '↕ Primero los nuevos';
 
-    // Renderizar: módulos como cards primero, luego temas sueltos siempre
-    let html = '';
-
-    if (modules.length) {
-      html += `<div class="modules-grid">`;
-      modules.forEach((mod, i) => {
-        const count = (moduleTopics[mod.id] || []).length;
-        html += `
-          <div class="module-card" style="animation-delay:${i * 0.07}s"
-               onclick="openModule('${catId}','${mod.id}')">
-            <div class="module-card-icon">${mod.icon || '📂'}</div>
-            <div class="module-card-name">${mod.name}</div>
-            <div class="module-card-count">${count} tema${count !== 1 ? 's' : ''}</div>
-            <div class="module-card-arrow">↗</div>
-          </div>`;
-      });
-      html += `</div>`;
-    }
-
-    // Temas sueltos: siempre se renderizan si existen.
-    // Si hay módulos, se añade un encabezado "Otros temas" para diferenciarlos.
-    if (looseTopics.length) {
-      if (modules.length) {
-        html += `<div class="loose-topics-header">
-          <span class="loose-topics-header-icon">📄</span>
-          <span class="loose-topics-header-title">Otros temas</span>
-          <span class="loose-topics-header-count">${looseTopics.length}</span>
-        </div>`;
-      }
-      html += looseTopics.map((t, i) => `
-        <div class="topic-item" style="animation-delay:${i * 0.04}s"
-             onclick="openTopic('${catId}','${t.id}')">
-          <div class="topic-item-left">
-            <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
-            <div style="min-width:0">
-              <div class="topic-name">${t.name}</div>
-              <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
-            </div>
-          </div>
-          <div class="topic-chevron">→</div>
-        </div>
-      `).join('');
-    }
-
-    if (!html) {
-      html = `<div class="empty-state">
-        <div class="empty-icon">📘</div>
-        <div class="empty-text">Sin temas en esta categoría</div>
-        <div class="empty-sub">Agrega el primero desde el panel admin</div>
-      </div>`;
-    }
-
-    topicsList.innerHTML = html;
+    _renderCategoryContent(catId, modules, moduleTopics, looseTopics);
   };
 
   // ── Open Topic Modal ─────────────────────────────
@@ -2798,20 +2791,22 @@ sys.ps2 = ''
     });
   }
 
-  // ── Show View ────────────────────────────────────
-  function showView(name) {
-    // Guard: prevent non-admin from accessing admin view
-    if (name === 'admin' && !window._state.adminUser) {
-      name = 'login';
-    }
+  // ── Show View (solo DOM, sin tocar historial) ────
+  // Para navegación interna usa navigateTo(); showView() es solo para
+  // casos donde el historial ya fue manejado externamente (popstate).
+  function _activateView(name) {
+    if (name === 'admin' && !window._state.adminUser) name = 'login';
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const target = document.getElementById('view-' + name);
-    if (target) {
-      target.classList.add('active');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    if (target) { target.classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     document.body.style.overflow = '';
     document.getElementById('topicModal').classList.remove('open');
+  }
+
+  // Navegación pública: actualiza DOM + historial
+  function showView(name) {
+    if (name === 'admin' && !window._state.adminUser) name = 'login';
+    _activateView(name);
     if (name === 'home') {
       history.replaceState({ view: 'home' }, '');
     } else {
@@ -2820,31 +2815,111 @@ sys.ps2 = ''
   }
 
   // ── Botón físico "atrás" del móvil ───────────────
-  // Prioridad 1: modal abierto → cerrarlo (usuario queda en la categoría).
-  // Prioridad 2: vista secundaria → volver a home.
+  // Estrategia: el state guarda exactamente qué vista y qué IDs restaurar.
+  // Nunca llamamos openCategory/openModule desde popstate porque esas
+  // funciones hacen pushState y corrompen la pila. Solo activamos el DOM
+  // con los datos que ya están en memoria.
   window.addEventListener('popstate', (e) => {
     const modal = document.getElementById('topicModal');
+    // Prioridad 1: cerrar modal si está abierto
     if (modal.classList.contains('open')) {
       modal.classList.remove('open');
       document.body.style.overflow = '';
       return;
     }
-    const dest = e.state?.view ?? 'home';
+
+    const state = e.state || { view: 'home' };
+    const dest  = state.view;
+
+    if (dest === 'modal') {
+      // No debería llegar aquí sin modal abierto, ir a la vista anterior
+      _activateView(state.prev || 'home');
+      return;
+    }
+
     if (dest === 'module') {
-      // Re-abrir el módulo actual si existe
-      const { catId, modId } = window._state.currentMod || {};
-      if (catId && modId) { window.openModule(catId, modId); return; }
+      // Restaurar vista de módulo desde estado
+      const { catId, modId } = state;
+      const cat = window._state.categories.find(c => c.id === catId);
+
+      if (modId === '__loose__' && cat) {
+        // Restaurar "Otros temas"
+        window._state.currentMod = { catId, modId: '__loose__' };
+        window._state.moduleTopicsReversed = false;
+        document.getElementById('moduleHeader').innerHTML = `
+          <div class="cat-header-icon" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1)">📄</div>
+          <div class="cat-header-info"><h1>Otros temas</h1><p>${cat.name}</p></div>`;
+        const topics = window._state.topics[catId] || [];
+        document.getElementById('moduleTopicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
+        document.getElementById('moduleSortBtnWrap').style.display = topics.length > 1 ? 'block' : 'none';
+        document.getElementById('moduleSortToggleBtn').textContent = '↕ Primero los nuevos';
+        const list = document.getElementById('moduleTopicsList');
+        list.innerHTML = topics.map((t, i) => `
+          <div class="topic-item" style="animation-delay:${i * 0.04}s"
+               onclick="openTopic('${catId}','${t.id}')">
+            <div class="topic-item-left">
+              <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+              <div style="min-width:0">
+                <div class="topic-name">${t.name}</div>
+                <div class="topic-preview">${(t.definition||'').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+              </div>
+            </div>
+            <div class="topic-chevron">→</div>
+          </div>`).join('');
+        _activateView('module');
+        return;
+      }
+
+      const mod = (window._state.modules || []).find(m => m.id === modId);
+      if (mod && cat) {
+        window._state.currentMod = { catId, modId };
+        window._state.moduleTopicsReversed = false;
+        document.getElementById('moduleHeader').innerHTML = `
+          <div class="cat-header-icon" style="background:rgba(124,107,255,0.1);border:1px solid rgba(124,107,255,0.2)">${mod.icon || '📂'}</div>
+          <div class="cat-header-info"><h1>${mod.name}</h1><p>${cat.name}</p></div>`;
+        const topics = (window._state.moduleTopics || {})[modId] || [];
+        document.getElementById('moduleTopicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
+        document.getElementById('moduleSortBtnWrap').style.display = topics.length > 1 ? 'block' : 'none';
+        document.getElementById('moduleSortToggleBtn').textContent = '↕ Primero los nuevos';
+        renderModuleTopics(catId, modId, topics);
+        _activateView('module');
+      } else {
+        _activateView('home');
+      }
+      return;
     }
+
     if (dest === 'category') {
-      const catId = window._state.currentCat?.id;
-      if (catId) { window.openCategory(catId); return; }
+      // Restaurar vista de categoría desde estado sin pushState nuevo
+      const { catId } = state;
+      const cat = window._state.categories.find(c => c.id === catId);
+      if (cat && window._state.topics[catId] !== undefined) {
+        // Datos ya en memoria — solo re-renderizar
+        window._state.currentCat = cat;
+        window._state.topicsReversed = false;
+        document.getElementById('catHeader').innerHTML = `
+          <div class="cat-header-icon ${getCatColor(cat.name)}">${cat.icon || '📁'}</div>
+          <div class="cat-header-info"><h1>${cat.name}</h1><p>Explora todos los conceptos disponibles</p></div>`;
+        const looseTopics = window._state.topics[catId] || [];
+        const modules     = window._state.modules || [];
+        const moduleTopics= window._state.moduleTopics || {};
+        const totalModTopics = modules.reduce((s,m) => s + (moduleTopics[m.id]?.length||0), 0);
+        const total = looseTopics.length + totalModTopics;
+        document.getElementById('topicCount').textContent = total + (total===1?' tema':' temas');
+        const sortWrap = document.getElementById('sortBtnWrap');
+        sortWrap.style.display = (looseTopics.length > 1 || modules.length > 1) ? 'block' : 'none';
+        document.getElementById('sortToggleBtn').textContent = '↕ Primero los nuevos';
+        _renderCategoryContent(catId, modules, moduleTopics, looseTopics);
+        _activateView('category');
+      } else {
+        // Sin datos en memoria, ir a home
+        _activateView('home');
+      }
+      return;
     }
-    if (dest === 'home') {
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      const home = document.getElementById('view-home');
-      if (home) { home.classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      document.body.style.overflow = '';
-    }
+
+    // home u otro estado desconocido
+    _activateView('home');
   });
 
   // Ancla el estado inicial — reemplaza la entrada vacía que el navegador
@@ -3451,7 +3526,6 @@ sys.ps2 = ''
     window._state.currentMod = { catId, modId };
     window._state.moduleTopicsReversed = false;
 
-    // Header igual que cat-header
     document.getElementById('moduleHeader').innerHTML = `
       <div class="cat-header-icon" style="background:rgba(124,107,255,0.1);border:1px solid rgba(124,107,255,0.2)">${mod.icon || '📂'}</div>
       <div class="cat-header-info">
@@ -3463,14 +3537,55 @@ sys.ps2 = ''
     const topics = (window._state.moduleTopics || {})[modId] || [];
     document.getElementById('moduleTopicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
 
-    // Botón ordenar
     const sortWrap = document.getElementById('moduleSortBtnWrap');
-    const sortBtn  = document.getElementById('moduleSortToggleBtn');
     sortWrap.style.display = topics.length > 1 ? 'block' : 'none';
-    sortBtn.textContent = '↕ Primero los nuevos';
+    document.getElementById('moduleSortToggleBtn').textContent = '↕ Primero los nuevos';
 
     renderModuleTopics(catId, modId, topics);
-    showView('module');
+    _activateView('module');
+    history.pushState({ view: 'module', catId, modId }, '');
+  };
+
+  // ── Open "Otros temas" como vista propia ─────────
+  window.openLooseTopics = function(catId) {
+    const cat = window._state.categories.find(c => c.id === catId);
+    if (!cat) return;
+
+    window._state.currentMod = { catId, modId: '__loose__' };
+    window._state.moduleTopicsReversed = false;
+
+    document.getElementById('moduleHeader').innerHTML = `
+      <div class="cat-header-icon" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1)">📄</div>
+      <div class="cat-header-info">
+        <h1>Otros temas</h1>
+        <p>${cat.name}</p>
+      </div>
+    `;
+
+    const topics = window._state.topics[catId] || [];
+    document.getElementById('moduleTopicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
+
+    const sortWrap = document.getElementById('moduleSortBtnWrap');
+    sortWrap.style.display = topics.length > 1 ? 'block' : 'none';
+    document.getElementById('moduleSortToggleBtn').textContent = '↕ Primero los nuevos';
+
+    // Reusar renderModuleTopics pero con openTopic en lugar de openModuleTopic
+    const list = document.getElementById('moduleTopicsList');
+    list.innerHTML = topics.map((t, i) => `
+      <div class="topic-item" style="animation-delay:${i * 0.04}s"
+           onclick="openTopic('${catId}','${t.id}')">
+        <div class="topic-item-left">
+          <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+          <div style="min-width:0">
+            <div class="topic-name">${t.name}</div>
+            <div class="topic-preview">${(t.definition||'').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+          </div>
+        </div>
+        <div class="topic-chevron">→</div>
+      </div>`).join('') || `<div class="empty-state"><div class="empty-icon">📘</div><div class="empty-text">Sin temas</div></div>`;
+
+    _activateView('module');
+    history.pushState({ view: 'module', catId, modId: '__loose__' }, '');
   };
 
   function renderModuleTopics(catId, modId, topics) {
@@ -3504,22 +3619,37 @@ sys.ps2 = ''
     window._state.moduleTopicsReversed = !window._state.moduleTopicsReversed;
     const btn = document.getElementById('moduleSortToggleBtn');
     btn.textContent = window._state.moduleTopicsReversed ? '↕ Orden original' : '↕ Primero los nuevos';
-    window._state.moduleTopics[modId] = [...(window._state.moduleTopics[modId] || [])].reverse();
-    renderModuleTopics(catId, modId, window._state.moduleTopics[modId]);
+
+    if (modId === '__loose__') {
+      window._state.topics[catId] = [...(window._state.topics[catId] || [])].reverse();
+      const topics = window._state.topics[catId];
+      const list = document.getElementById('moduleTopicsList');
+      list.innerHTML = topics.map((t, i) => `
+        <div class="topic-item" style="animation-delay:${i * 0.04}s"
+             onclick="openTopic('${catId}','${t.id}')">
+          <div class="topic-item-left">
+            <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+            <div style="min-width:0">
+              <div class="topic-name">${t.name}</div>
+              <div class="topic-preview">${(t.definition||'').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+            </div>
+          </div>
+          <div class="topic-chevron">→</div>
+        </div>`).join('');
+    } else {
+      window._state.moduleTopics[modId] = [...(window._state.moduleTopics[modId] || [])].reverse();
+      renderModuleTopics(catId, modId, window._state.moduleTopics[modId]);
+    }
   }
 
   function goBackToCategory() {
     const catId = window._state.currentMod?.catId || window._state.currentCat?.id;
     if (catId) {
-      window.openCategory(catId);
+      history.back(); // deja que popstate maneje la restauración
     } else {
       showView('home');
     }
   }
-
-  window.openModule            = window.openModule;
-  window.goBackToCategory      = goBackToCategory;
-  window.toggleModuleTopicOrder= toggleModuleTopicOrder;
   window.saveModule        = saveModule;
   window.loadEditModules   = loadEditModules;
   window.showEditModuleForm= showEditModuleForm;
@@ -3527,6 +3657,9 @@ sys.ps2 = ''
   window.deleteModule      = deleteModule;
   window.openModuleTopic   = openModuleTopic;
   window.saveCategory      = saveCategory;
+  window.openLooseTopics       = openLooseTopics;
+  window.goBackToCategory      = goBackToCategory;
+  window.toggleModuleTopicOrder= toggleModuleTopicOrder;
 
   // ── Code Type Selector (admin) ───────────────────────────────
   function setCodeType(type) {
