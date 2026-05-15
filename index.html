@@ -1407,42 +1407,110 @@
       font-size: 0.88rem;
     }
 
-    /* ========== MÓDULOS — Vista usuario ========== */
-    .module-block {
-      margin-bottom: 28px;
+    /* ========== MÓDULOS — Vista usuario (cards clicables) ========== */
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+      gap: 14px;
+      margin-bottom: 32px;
     }
-    .module-header {
+
+    .module-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: clamp(18px, 4vw, 26px);
+      cursor: pointer;
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+      animation: cardAppear 0.5s cubic-bezier(0.4,0,0.2,1) both;
+    }
+
+    .module-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(124,107,255,0.06), transparent);
+      opacity: 0;
+      transition: var(--transition);
+    }
+
+    .module-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-4px);
+      box-shadow: var(--shadow2), var(--glow);
+    }
+
+    .module-card:hover::before { opacity: 1; }
+
+    .module-card-icon {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: rgba(124,107,255,0.1);
+      border: 1px solid rgba(124,107,255,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+
+    .module-card-name {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(0.95rem, 2.5vw, 1.1rem);
+      font-weight: 700;
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+
+    .module-card-count {
+      font-size: 0.8rem;
+      color: var(--text3);
+    }
+
+    .module-card-arrow {
+      position: absolute;
+      top: clamp(18px,4vw,26px);
+      right: clamp(18px,4vw,26px);
+      color: var(--text3);
+      font-size: 1.1rem;
+      transition: var(--transition);
+    }
+
+    .module-card:hover .module-card-arrow {
+      color: var(--accent2);
+      transform: translate(2px,-2px);
+    }
+
+    /* Encabezado separador "Otros temas" cuando hay módulos y temas sueltos */
+    .loose-topics-header {
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 12px;
-      padding: 12px 16px;
+      margin-bottom: 14px;
+      padding: 10px 14px;
       background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 12px;
-      cursor: default;
+      border: 1px solid var(--border);
+      border-radius: 10px;
     }
-    .module-icon {
-      font-size: 1.2rem;
-      flex-shrink: 0;
-    }
-    .module-title {
+    .loose-topics-header-icon { font-size: 1rem; }
+    .loose-topics-header-title {
       font-family: 'Syne', sans-serif;
       font-weight: 700;
-      font-size: 1rem;
-      color: var(--text);
+      font-size: 0.9rem;
+      color: var(--text2);
       flex: 1;
     }
-    .module-count {
-      font-size: 0.74rem;
+    .loose-topics-header-count {
+      font-size: 0.72rem;
       color: var(--text3);
       font-family: 'JetBrains Mono', monospace;
       background: rgba(124,107,255,0.08);
       border: 1px solid rgba(124,107,255,0.15);
       border-radius: 6px;
-      padding: 2px 8px;
+      padding: 2px 7px;
     }
-    .module-topics { padding-left: 0; }
 
     /* Badge de módulo en el panel de edición de temas */
     .module-badge {
@@ -1687,6 +1755,24 @@
         </button>
       </div>
       <div class="topics-list" id="topicsList"></div>
+    </div>
+  </div>
+
+  <!-- ===== MODULE VIEW ===== -->
+  <div class="view" id="view-module">
+    <div class="section" style="padding-top:40px;">
+      <button class="back-btn" id="modulBackBtn" onclick="goBackToCategory()">← Volver</button>
+      <div class="cat-header" id="moduleHeader"></div>
+      <div class="section-header">
+        <div class="section-title">Temas</div>
+        <div class="section-meta" id="moduleTopicCount"></div>
+      </div>
+      <div id="moduleSortBtnWrap" style="display:none;margin-bottom:20px;">
+        <button class="sort-btn" id="moduleSortToggleBtn" onclick="toggleModuleTopicOrder()">
+          ↕ Primero los nuevos
+        </button>
+      </div>
+      <div class="topics-list" id="moduleTopicsList"></div>
     </div>
   </div>
 
@@ -2394,58 +2480,40 @@ sys.ps2 = ''
     if (window._state.topics[catId]) {
       window._state.topics[catId] = [...window._state.topics[catId]].reverse();
     }
-    // Invertir orden de módulos y temas dentro de cada módulo
+    // Invertir orden de módulos
     if (window._state.modules) {
       window._state.modules = [...window._state.modules].reverse();
     }
-    if (window._state.moduleTopics) {
-      const inverted = {};
-      Object.entries(window._state.moduleTopics).forEach(([modId, topics]) => {
-        inverted[modId] = [...topics].reverse();
-      });
-      window._state.moduleTopics = inverted;
-    }
 
-    // Re-renderizar todo el contenido de la categoría
+    // Re-renderizar con module-cards
     const topicsList = document.getElementById('topicsList');
     const modules = window._state.modules || [];
     const moduleTopics = window._state.moduleTopics || {};
     const looseTopics = window._state.topics[catId] || [];
 
     let html = '';
-    modules.forEach(mod => {
-      const topics = moduleTopics[mod.id] || [];
-      html += `
-        <div class="module-block">
-          <div class="module-header">
-            <span class="module-icon">${mod.icon || '📂'}</span>
-            <span class="module-title">${mod.name}</span>
-            <span class="module-count">${topics.length} tema${topics.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div class="module-topics">
-            ${topics.length ? topics.map((t, i) => `
-              <div class="topic-item" style="animation-delay:${i * 0.04}s"
-                   onclick="openModuleTopic('${catId}','${mod.id}','${t.id}')">
-                <div class="topic-item-left">
-                  <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
-                  <div style="min-width:0">
-                    <div class="topic-name">${t.name}</div>
-                    <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
-                  </div>
-                </div>
-                <div class="topic-chevron">→</div>
-              </div>
-            `).join('') : '<div class="edit-empty" style="padding:16px">Sin temas en este módulo</div>'}
-          </div>
-        </div>`;
-    });
+    if (modules.length) {
+      html += `<div class="modules-grid">`;
+      modules.forEach((mod, i) => {
+        const count = (moduleTopics[mod.id] || []).length;
+        html += `
+          <div class="module-card" style="animation-delay:${i * 0.07}s"
+               onclick="openModule('${catId}','${mod.id}')">
+            <div class="module-card-icon">${mod.icon || '📂'}</div>
+            <div class="module-card-name">${mod.name}</div>
+            <div class="module-card-count">${count} tema${count !== 1 ? 's' : ''}</div>
+            <div class="module-card-arrow">↗</div>
+          </div>`;
+      });
+      html += `</div>`;
+    }
 
     if (looseTopics.length) {
       if (modules.length) {
-        html += `<div class="module-header" style="margin-top:16px">
-          <span class="module-icon">📄</span>
-          <span class="module-title">Otros temas</span>
-          <span class="module-count">${looseTopics.length}</span>
+        html += `<div class="loose-topics-header">
+          <span class="loose-topics-header-icon">📄</span>
+          <span class="loose-topics-header-title">Otros temas</span>
+          <span class="loose-topics-header-count">${looseTopics.length}</span>
         </div>`;
       }
       html += looseTopics.map((t, i) => `
@@ -2541,44 +2609,33 @@ sys.ps2 = ''
     sortBtn.textContent = '↕ Primero los nuevos';
     window._state.topicsReversed = false;
 
-    // Renderizar: módulos primero, luego temas sueltos siempre
+    // Renderizar: módulos como cards primero, luego temas sueltos siempre
     let html = '';
 
-    modules.forEach(mod => {
-      const topics = moduleTopics[mod.id] || [];
-      html += `
-        <div class="module-block">
-          <div class="module-header">
-            <span class="module-icon">${mod.icon || '📂'}</span>
-            <span class="module-title">${mod.name}</span>
-            <span class="module-count">${topics.length} tema${topics.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div class="module-topics">
-            ${topics.length ? topics.map((t, i) => `
-              <div class="topic-item" style="animation-delay:${i * 0.04}s"
-                   onclick="openModuleTopic('${catId}','${mod.id}','${t.id}')">
-                <div class="topic-item-left">
-                  <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
-                  <div style="min-width:0">
-                    <div class="topic-name">${t.name}</div>
-                    <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
-                  </div>
-                </div>
-                <div class="topic-chevron">→</div>
-              </div>
-            `).join('') : '<div class="edit-empty" style="padding:16px">Sin temas en este módulo</div>'}
-          </div>
-        </div>`;
-    });
+    if (modules.length) {
+      html += `<div class="modules-grid">`;
+      modules.forEach((mod, i) => {
+        const count = (moduleTopics[mod.id] || []).length;
+        html += `
+          <div class="module-card" style="animation-delay:${i * 0.07}s"
+               onclick="openModule('${catId}','${mod.id}')">
+            <div class="module-card-icon">${mod.icon || '📂'}</div>
+            <div class="module-card-name">${mod.name}</div>
+            <div class="module-card-count">${count} tema${count !== 1 ? 's' : ''}</div>
+            <div class="module-card-arrow">↗</div>
+          </div>`;
+      });
+      html += `</div>`;
+    }
 
     // Temas sueltos: siempre se renderizan si existen.
     // Si hay módulos, se añade un encabezado "Otros temas" para diferenciarlos.
     if (looseTopics.length) {
       if (modules.length) {
-        html += `<div class="module-header" style="margin-top:16px">
-          <span class="module-icon">📄</span>
-          <span class="module-title">Otros temas</span>
-          <span class="module-count">${looseTopics.length}</span>
+        html += `<div class="loose-topics-header">
+          <span class="loose-topics-header-icon">📄</span>
+          <span class="loose-topics-header-title">Otros temas</span>
+          <span class="loose-topics-header-count">${looseTopics.length}</span>
         </div>`;
       }
       html += looseTopics.map((t, i) => `
@@ -2755,9 +2812,6 @@ sys.ps2 = ''
     }
     document.body.style.overflow = '';
     document.getElementById('topicModal').classList.remove('open');
-    // home es la raíz: replaceState para no empujar entradas hacia atrás.
-    // Vistas secundarias (category, login, admin): pushState para que el
-    // botón físico "atrás" tenga adónde retroceder.
     if (name === 'home') {
       history.replaceState({ view: 'home' }, '');
     } else {
@@ -2775,9 +2829,16 @@ sys.ps2 = ''
       document.body.style.overflow = '';
       return;
     }
-    // e.state.view indica el estado al que el navegador quiere ir.
-    // Si es 'home' (o no hay estado) activamos la vista home.
     const dest = e.state?.view ?? 'home';
+    if (dest === 'module') {
+      // Re-abrir el módulo actual si existe
+      const { catId, modId } = window._state.currentMod || {};
+      if (catId && modId) { window.openModule(catId, modId); return; }
+    }
+    if (dest === 'category') {
+      const catId = window._state.currentCat?.id;
+      if (catId) { window.openCategory(catId); return; }
+    }
     if (dest === 'home') {
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       const home = document.getElementById('view-home');
@@ -3381,8 +3442,84 @@ sys.ps2 = ''
     } catch(e) { showToast('Error: ' + e.message, 'error'); }
   }
 
-  // ── Expose globals (after all declarations) ─────
-  window.showView          = showView;
+  // ── Open Module (vista de temas del módulo) ──────
+  window.openModule = function(catId, modId) {
+    const cat = window._state.categories.find(c => c.id === catId);
+    const mod = (window._state.modules || []).find(m => m.id === modId);
+    if (!mod) return;
+
+    window._state.currentMod = { catId, modId };
+    window._state.moduleTopicsReversed = false;
+
+    // Header igual que cat-header
+    document.getElementById('moduleHeader').innerHTML = `
+      <div class="cat-header-icon" style="background:rgba(124,107,255,0.1);border:1px solid rgba(124,107,255,0.2)">${mod.icon || '📂'}</div>
+      <div class="cat-header-info">
+        <h1>${mod.name}</h1>
+        <p>${cat ? cat.name : ''}</p>
+      </div>
+    `;
+
+    const topics = (window._state.moduleTopics || {})[modId] || [];
+    document.getElementById('moduleTopicCount').textContent = topics.length + (topics.length === 1 ? ' tema' : ' temas');
+
+    // Botón ordenar
+    const sortWrap = document.getElementById('moduleSortBtnWrap');
+    const sortBtn  = document.getElementById('moduleSortToggleBtn');
+    sortWrap.style.display = topics.length > 1 ? 'block' : 'none';
+    sortBtn.textContent = '↕ Primero los nuevos';
+
+    renderModuleTopics(catId, modId, topics);
+    showView('module');
+  };
+
+  function renderModuleTopics(catId, modId, topics) {
+    const list = document.getElementById('moduleTopicsList');
+    if (!topics.length) {
+      list.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">📘</div>
+        <div class="empty-text">Sin temas en este módulo</div>
+        <div class="empty-sub">Agrega el primero desde el panel admin</div>
+      </div>`;
+      return;
+    }
+    list.innerHTML = topics.map((t, i) => `
+      <div class="topic-item" style="animation-delay:${i * 0.04}s"
+           onclick="openModuleTopic('${catId}','${modId}','${t.id}')">
+        <div class="topic-item-left">
+          <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+          <div style="min-width:0">
+            <div class="topic-name">${t.name}</div>
+            <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+          </div>
+        </div>
+        <div class="topic-chevron">→</div>
+      </div>
+    `).join('');
+  }
+
+  function toggleModuleTopicOrder() {
+    const { catId, modId } = window._state.currentMod || {};
+    if (!catId || !modId) return;
+    window._state.moduleTopicsReversed = !window._state.moduleTopicsReversed;
+    const btn = document.getElementById('moduleSortToggleBtn');
+    btn.textContent = window._state.moduleTopicsReversed ? '↕ Orden original' : '↕ Primero los nuevos';
+    window._state.moduleTopics[modId] = [...(window._state.moduleTopics[modId] || [])].reverse();
+    renderModuleTopics(catId, modId, window._state.moduleTopics[modId]);
+  }
+
+  function goBackToCategory() {
+    const catId = window._state.currentMod?.catId || window._state.currentCat?.id;
+    if (catId) {
+      window.openCategory(catId);
+    } else {
+      showView('home');
+    }
+  }
+
+  window.openModule            = window.openModule;
+  window.goBackToCategory      = goBackToCategory;
+  window.toggleModuleTopicOrder= toggleModuleTopicOrder;
   window.saveModule        = saveModule;
   window.loadEditModules   = loadEditModules;
   window.showEditModuleForm= showEditModuleForm;
