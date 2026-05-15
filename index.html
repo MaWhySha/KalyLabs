@@ -2385,12 +2385,88 @@ sys.ps2 = ''
   // Invertir orden en memoria — cero lecturas a Firebase
   function toggleTopicOrder() {
     const catId = window._state.currentCat?.id;
-    if (!catId || !window._state.topics[catId]) return;
-    window._state.topics[catId] = [...window._state.topics[catId]].reverse();
+    if (!catId) return;
     window._state.topicsReversed = !window._state.topicsReversed;
     const btn = document.getElementById('sortToggleBtn');
     btn.textContent = window._state.topicsReversed ? '↕ Orden original' : '↕ Primero los nuevos';
-    renderTopicsList(window._state.topics[catId], catId);
+
+    // Invertir temas sueltos
+    if (window._state.topics[catId]) {
+      window._state.topics[catId] = [...window._state.topics[catId]].reverse();
+    }
+    // Invertir orden de módulos y temas dentro de cada módulo
+    if (window._state.modules) {
+      window._state.modules = [...window._state.modules].reverse();
+    }
+    if (window._state.moduleTopics) {
+      const inverted = {};
+      Object.entries(window._state.moduleTopics).forEach(([modId, topics]) => {
+        inverted[modId] = [...topics].reverse();
+      });
+      window._state.moduleTopics = inverted;
+    }
+
+    // Re-renderizar todo el contenido de la categoría
+    const topicsList = document.getElementById('topicsList');
+    const modules = window._state.modules || [];
+    const moduleTopics = window._state.moduleTopics || {};
+    const looseTopics = window._state.topics[catId] || [];
+
+    let html = '';
+    modules.forEach(mod => {
+      const topics = moduleTopics[mod.id] || [];
+      html += `
+        <div class="module-block">
+          <div class="module-header">
+            <span class="module-icon">${mod.icon || '📂'}</span>
+            <span class="module-title">${mod.name}</span>
+            <span class="module-count">${topics.length} tema${topics.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="module-topics">
+            ${topics.length ? topics.map((t, i) => `
+              <div class="topic-item" style="animation-delay:${i * 0.04}s"
+                   onclick="openModuleTopic('${catId}','${mod.id}','${t.id}')">
+                <div class="topic-item-left">
+                  <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+                  <div style="min-width:0">
+                    <div class="topic-name">${t.name}</div>
+                    <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+                  </div>
+                </div>
+                <div class="topic-chevron">→</div>
+              </div>
+            `).join('') : '<div class="edit-empty" style="padding:16px">Sin temas en este módulo</div>'}
+          </div>
+        </div>`;
+    });
+
+    if (looseTopics.length) {
+      if (modules.length) {
+        html += `<div class="module-header" style="margin-top:16px">
+          <span class="module-icon">📄</span>
+          <span class="module-title">Otros temas</span>
+          <span class="module-count">${looseTopics.length}</span>
+        </div>`;
+      }
+      html += looseTopics.map((t, i) => `
+        <div class="topic-item" style="animation-delay:${i * 0.04}s"
+             onclick="openTopic('${catId}','${t.id}')">
+          <div class="topic-item-left">
+            <div class="topic-num">${String(i+1).padStart(2,'0')}</div>
+            <div style="min-width:0">
+              <div class="topic-name">${t.name}</div>
+              <div class="topic-preview">${(t.definition || '').substring(0,70)}${(t.definition||'').length>70?'...':''}</div>
+            </div>
+          </div>
+          <div class="topic-chevron">→</div>
+        </div>
+      `).join('');
+    }
+
+    topicsList.innerHTML = html || `<div class="empty-state">
+      <div class="empty-icon">📘</div>
+      <div class="empty-text">Sin temas en esta categoría</div>
+    </div>`;
   }
 
   window.openCategory = async function(catId) {
@@ -2458,10 +2534,10 @@ sys.ps2 = ''
     const totalTopics = looseTopics.length + totalModuleTopics;
     document.getElementById('topicCount').textContent = totalTopics + (totalTopics === 1 ? ' tema' : ' temas');
 
-    // Botón invertir: visible si hay más de 1 tema suelto
+    // Botón invertir: visible si hay más de 1 tema suelto O hay módulos
     const sortBtnWrap = document.getElementById('sortBtnWrap');
     const sortBtn     = document.getElementById('sortToggleBtn');
-    sortBtnWrap.style.display = looseTopics.length > 1 ? 'block' : 'none';
+    sortBtnWrap.style.display = (looseTopics.length > 1 || modules.length > 1) ? 'block' : 'none';
     sortBtn.textContent = '↕ Primero los nuevos';
     window._state.topicsReversed = false;
 
@@ -2749,6 +2825,9 @@ sys.ps2 = ''
     const icon  = document.getElementById('moduleIcon').value.trim() || '📂';
     if (!catId) { showToast('Selecciona una categoría', 'error'); return; }
     if (!name)  { showToast('Escribe el nombre del módulo', 'error'); return; }
+
+    // Forzar refresh del token para garantizar que Firestore reciba credenciales válidas
+    try { await window._state.adminUser.getIdToken(true); } catch(_) {}
 
     // Orden automático: último + 1
     let autoOrder = 1;
