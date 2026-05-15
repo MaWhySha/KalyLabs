@@ -2411,17 +2411,23 @@ sys.ps2 = ''
     topicsList.innerHTML = '<div style="color:var(--text3);padding:24px;text-align:center">Cargando...</div>';
     showView('category');
 
-    // Cargar módulos y temas en paralelo
-    let modules = [], allTopics = [];
+    // Cargar temas sueltos — consulta principal, nunca debe fallar silenciosamente
+    let allTopics = [];
     try {
-      const [modSnap, topSnap] = await Promise.all([
-        getDocs(collection(db, 'categories', catId, 'modules')),
-        getDocs(collection(db, 'categories', catId, 'topics'))
-      ]);
-      modules   = modSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const topSnap = await getDocs(collection(db, 'categories', catId, 'topics'));
       allTopics = topSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch(err) {
-      console.error('[KalyLabs] Error cargando categoría:', err);
+      console.error('[KalyLabs] Error cargando temas:', err);
+    }
+
+    // Cargar módulos — consulta separada para que un fallo aquí no afecte allTopics
+    let modules = [];
+    try {
+      const modSnap = await getDocs(collection(db, 'categories', catId, 'modules'));
+      modules = modSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch(err) {
+      // La colección modules puede no existir aún — es normal, no es un error real
+      modules = [];
     }
 
     // Ordenar módulos por order
@@ -2438,7 +2444,8 @@ sys.ps2 = ''
       } catch(e) { moduleTopics[mod.id] = []; }
     }));
 
-    // Temas sueltos: los que están en categories/{catId}/topics (sin módulo)
+    // Temas sueltos: todos los de categories/{catId}/topics, ordenados
+    // Soporta campo 'order' (nuevo), 'orden' (legado), o ninguno (van al final)
     const looseTopics = allTopics.sort((a, b) => (a.order ?? a.orden ?? 999) - (b.order ?? b.orden ?? 999));
 
     // Guardar en estado para openTopic
@@ -3095,16 +3102,16 @@ sys.ps2 = ''
     if (!catId) { list.innerHTML = '<div class="edit-empty">Selecciona una categoría arriba</div>'; return; }
     list.innerHTML = '<div class="edit-empty">Cargando...</div>';
 
-    // Cargar módulos y temas sueltos en paralelo
+    // Consultas separadas: si modules falla (colección inexistente), los temas sueltos se cargan igual
     let modules = [], looseTopics = [];
     try {
-      const [modSnap, topSnap] = await Promise.all([
-        getDocs(collection(db, 'categories', catId, 'modules')),
-        getDocs(collection(db, 'categories', catId, 'topics'))
-      ]);
-      modules     = modSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.order??999)-(b.order??999));
-      looseTopics = topSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.order??999)-(b.order??999));
-    } catch(e) { console.error('[KalyLabs]', e); }
+      const topSnap = await getDocs(collection(db, 'categories', catId, 'topics'));
+      looseTopics = topSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.order ?? a.orden ?? 999)-(b.order ?? b.orden ?? 999));
+    } catch(e) { console.error('[KalyLabs] Error cargando temas:', e); }
+    try {
+      const modSnap = await getDocs(collection(db, 'categories', catId, 'modules'));
+      modules = modSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.order??999)-(b.order??999));
+    } catch(e) { modules = []; }
 
     // Cargar temas de cada módulo
     const moduleTopics = {};
